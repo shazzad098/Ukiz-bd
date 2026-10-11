@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { adminSessionProcedure, couponThrottle, loginRateLimit, orderThrottle, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { clearAdminSession, isAdminAuthenticated, issueAdminSession, validateAdminCredentials } from "./adminAuth";
 import {
@@ -14,17 +14,105 @@ import {
 import { z } from "zod";
 
 import { createCustomer, getCustomerByEmail, getCustomerById, listCustomers, touchCustomerSignin } from "./db";
-import { checkCoupon, createCoupon, createOrder, deleteCoupon, getStoreSettings, listCoupons, listOrders, listOrdersByCustomer, parseOrderItems, setStoreSetting, updateCoupon, updateOrderStatus } from "./db";
+import { checkCoupon, checkDatabase, createCoupon, createOrder, deleteCoupon, getStoreSettings, listCoupons, listOrders, listOrdersByCustomer, parseOrderItems, setStoreSetting, updateCoupon, updateOrderStatus } from "./db";
 import { deliveryFeeFor } from "../shared/order";
 import { ORDER_STATUSES } from "../drizzle/schema";
 import { uploadProductImage } from "./supabaseStorage";
 import { listProducts, createProduct, deleteProduct, updateProduct } from "./db";
 
+// ---------------------------------------------------------------------------
+// Order pricing integrity.
+//
+// The client sends its cart view (price, name, image), but none of it is
+// trusted: every line is rebuilt from the catalogue so a tampered payload
+// cannot charge less, rename a product or swap an image. Unknown products or
+// sizes (stale carts) are rejected with a clear message instead of silently
+// computing a wrong total.
+// ---------------------------------------------------------------------------
+
+function parseJsonArray(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      // fall through
+    }
+  }
+  return [];
+}
+
+function parsePriceRecord(raw: unknown): Record<string, number> {
+  const source =
+    typeof raw === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : raw;
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const out: Record<string, number> = {};
+  for (const [size, value] of Object.entries(source as Record<string, unknown>)) {
+    const n = Number(value);
+    if (size && Number.isFinite(n) && n >= 0) out[size] = n;
+  }
+  return out;
+}
+
+export type OrderLineInput = { productId: string; size: string; quantity: number; premium?: string };
+
+/** Rebuilds cart lines with catalogue prices/names/images. Throws TRPCError BAD_REQUEST on unknown product/size. */
+export async function resolveOrderItems(items: OrderLineInput[]) {
+  const catalogue = await listProducts();
+  const byId = new Map(catalogue.map(p => [String(p.id), p]));
+  return items.map(item => {
+    const product = byId.get(item.productId);
+    if (!product) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Your bag contains an item that is no longer available. Please refresh and try again.",
+      });
+    }
+    if (!parseJsonArray(product.sizes).includes(item.size)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `"${product.name}" does not come in ${item.size}. Please refresh your bag and try again.`,
+      });
+    }
+    const sizePrices = parsePriceRecord(product.sizePrices);
+    const base = sizePrices[item.size] ?? product.price;
+    let unitPrice = base;
+    if (item.premium) {
+      if (!product.premiumName || !product.premiumPrice || product.premiumPrice <= 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `The premium option is not available for "${product.name}".`,
+        });
+      }
+      unitPrice += product.premiumPrice;
+    }
+    return {
+      productId: item.productId,
+      name: product.name,
+      brand: product.brand,
+      size: item.size,
+      price: unitPrice,
+      quantity: item.quantity,
+      image: product.image,
+      ...(item.premium ? { premium: product.premiumName ?? item.premium } : {}),
+    };
+  });
+}
+
 export const appRouter = router({
   system: systemRouter,
   products: router({
     list: publicProcedure.query(() => listProducts()),
-    create: publicProcedure
+    create: adminSessionProcedure
       .input(z.object({
         name: z.string(),
         brand: z.string(),
@@ -46,27 +134,24 @@ export const appRouter = router({
         stock: z.number().default(0),
         status: z.enum(["In stock", "Low stock", "Out of stock"]).default("In stock"),
       }))
-      .mutation(async ({ input, ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+      .mutation(async ({ input }) => {
         await createProduct(input);
         return { success: true };
       }),
-    delete: publicProcedure
+    delete: adminSessionProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+      .mutation(async ({ input }) => {
         await deleteProduct(input.id);
         return { success: true };
       }),
-    uploadImage: publicProcedure
+    uploadImage: adminSessionProcedure
       .input(z.object({
         filename: z.string().min(1).max(120),
         contentType: z.string().min(1).max(60),
         // Base64-encoded file bytes (data URL prefix not included). ~5MB max file.
         dataBase64: z.string().min(1).max(8_000_000),
       }))
-      .mutation(async ({ input, ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+      .mutation(async ({ input }) => {
         let data: Buffer;
         try {
           data = Buffer.from(input.dataBase64, "base64");
@@ -80,7 +165,7 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Upload failed." });
         }
       }),
-    update: publicProcedure
+    update: adminSessionProcedure
       .input(z.object({
         id: z.number(),
         name: z.string().optional(),
@@ -103,8 +188,7 @@ export const appRouter = router({
         stock: z.number().optional(),
         status: z.enum(["In stock", "Low stock", "Out of stock"]).optional(),
       }))
-      .mutation(async ({ input, ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+      .mutation(async ({ input }) => {
         const { id, ...patch } = input;
         await updateProduct(id, patch);
         return { success: true };
@@ -119,23 +203,30 @@ export const appRouter = router({
     }),
   }),
   admin: router({
-    login: publicProcedure.input(z.object({ id: z.string().min(1), password: z.string().min(1) })).mutation(({ input, ctx }) => {
+    login: publicProcedure.use(loginRateLimit).input(z.object({ id: z.string().min(1), password: z.string().min(1) })).mutation(({ input, ctx }) => {
       if (!validateAdminCredentials(input.id, input.password)) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid admin credentials" });
       }
       issueAdminSession(ctx.res, ctx.req);
       return { success: true, role: "super_admin" as const };
     }),
-    me: publicProcedure.query(({ ctx }) => ({ authenticated: isAdminAuthenticated(ctx.req), role: "super_admin" as const })),
+    me: publicProcedure.query(({ ctx }) => {
+      const authenticated = isAdminAuthenticated(ctx.req);
+      return { authenticated, role: authenticated ? ("super_admin" as const) : null };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       clearAdminSession(ctx.res, ctx.req);
       return { success: true } as const;
     }),
-    orders: publicProcedure.query(async ({ ctx }) => {
-      if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+    orders: adminSessionProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(500).default(100), offset: z.number().int().min(0).default(0) }).optional())
+      .query(async ({ input }) => {
+      const limit = input?.limit ?? 100;
+      const offset = input?.offset ?? 0;
       const [all, allCustomers] = await Promise.all([listOrders(), listCustomers()]);
       const byId = new Map(allCustomers.map((c) => [c.id, c]));
-      return all.map((o) => ({
+      const page = all.slice(offset, offset + limit);
+      return page.map((o) => ({
         id: o.id,
         customerId: o.customerId,
         customerName: byId.get(o.customerId)?.name ?? o.name,
@@ -158,19 +249,15 @@ export const appRouter = router({
         createdAt: o.createdAt,
       }));
     }),
-    updateOrderStatus: publicProcedure
+    updateOrderStatus: adminSessionProcedure
       .input(z.object({ id: z.number(), status: z.enum(ORDER_STATUSES) }))
-      .mutation(async ({ input, ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+      .mutation(async ({ input }) => {
         await updateOrderStatus(input.id, input.status);
         return { success: true };
       }),
     coupons: router({
-      list: publicProcedure.query(async ({ ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
-        return listCoupons();
-      }),
-      create: publicProcedure
+      list: adminSessionProcedure.query(async () => listCoupons()),
+      create: adminSessionProcedure
         .input(z.object({
           code: z.string().trim().min(1).max(32),
           type: z.enum(["percent", "flat"]),
@@ -179,8 +266,7 @@ export const appRouter = router({
           expiresAt: z.string().max(32).optional(),
           active: z.enum(["yes", "no"]).default("yes"),
         }))
-        .mutation(async ({ input, ctx }) => {
-          if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+        .mutation(async ({ input }) => {
           if (input.type === "percent" && input.value > 100) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Percent discount cannot exceed 100." });
           }
@@ -198,35 +284,52 @@ export const appRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "This coupon code already exists." });
           }
         }),
-      update: publicProcedure
+      update: adminSessionProcedure
         .input(z.object({
           id: z.number(),
           active: z.enum(["yes", "no"]).optional(),
           expiresAt: z.string().max(32).nullable().optional(),
+          value: z.number().int().min(1).max(100000).optional(),
+          minSubtotal: z.number().int().min(0).optional(),
         }))
-        .mutation(async ({ input, ctx }) => {
-          if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+        .mutation(async ({ input }) => {
           const { id, ...patch } = input;
+          if (
+            patch.value !== undefined &&
+            (await listCoupons()).find(c => c.id === id)?.type ===
+              "percent" &&
+            patch.value > 100
+          ) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Percent discount cannot exceed 100." });
+          }
           await updateCoupon(id, {
             ...(patch.active !== undefined ? { active: patch.active } : {}),
             ...(patch.expiresAt !== undefined ? { expiresAt: patch.expiresAt ? new Date(patch.expiresAt) : null } : {}),
+            ...(patch.value !== undefined ? { value: patch.value } : {}),
+            ...(patch.minSubtotal !== undefined ? { minSubtotal: patch.minSubtotal } : {}),
           });
           return { success: true };
         }),
-      remove: publicProcedure
+      remove: adminSessionProcedure
         .input(z.object({ id: z.number() }))
-        .mutation(async ({ input, ctx }) => {
-          if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+        .mutation(async ({ input }) => {
           await deleteCoupon(input.id);
           return { success: true };
         }),
     }),
     settings: router({
-      get: publicProcedure.query(async ({ ctx }) => {
-        if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
-        return getStoreSettings();
+      get: adminSessionProcedure.query(() => getStoreSettings()),
+      dbStatus: adminSessionProcedure.query(async () => {
+        const result = await checkDatabase();
+        return {
+          connected: result.ok,
+          mode: result.ok ? ("supabase" as const) : ("in-memory" as const),
+          message: result.ok
+            ? "Connected — the panel shows live Supabase data."
+            : (result.error ?? "Database unreachable."),
+        };
       }),
-      save: publicProcedure
+      save: adminSessionProcedure
         .input(z.object({
           announcement: z.string().trim().max(300),
           merchantNumber: z.string().trim().min(1).max(32),
@@ -234,8 +337,7 @@ export const appRouter = router({
           supportPhone: z.string().trim().max(32),
           freeThreshold: z.number().int().min(0),
         }))
-        .mutation(async ({ input, ctx }) => {
-          if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+        .mutation(async ({ input }) => {
           await Promise.all([
             setStoreSetting("announcement", input.announcement),
             setStoreSetting("merchantNumber", input.merchantNumber),
@@ -249,10 +351,11 @@ export const appRouter = router({
   }),
   customer: router({
     signup: publicProcedure
+      .use(loginRateLimit)
       .input(z.object({
         name: z.string().trim().min(1, "Name is required").max(120),
         email: z.string().trim().toLowerCase().email("Enter a valid email address"),
-        password: z.string().min(6, "Password must be at least 6 characters").max(100),
+        password: z.string().min(8, "Password must be at least 8 characters").max(100),
         phone: z.string().trim().max(32).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -270,6 +373,7 @@ export const appRouter = router({
         return { success: true, customer: { id: row.id, name: row.name, email: row.email } };
       }),
     login: publicProcedure
+      .use(loginRateLimit)
       .input(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         const row = await getCustomerByEmail(input.email);
@@ -294,6 +398,7 @@ export const appRouter = router({
   }),
   coupons: router({
     validate: publicProcedure
+      .use(couponThrottle)
       .input(z.object({
         code: z.string().trim().min(1).max(32),
         subtotal: z.number().int().min(0),
@@ -304,8 +409,7 @@ export const appRouter = router({
     public: publicProcedure.query(() => getStoreSettings()),
   }),
   customers: router({
-    list: publicProcedure.query(async ({ ctx }) => {
-      if (!isAdminAuthenticated(ctx.req)) throw new TRPCError({ code: "UNAUTHORIZED" });
+    list: adminSessionProcedure.query(async () => {
       const rows = await listCustomers();
       return rows.map((r) => ({
         id: r.id,
@@ -319,6 +423,7 @@ export const appRouter = router({
   }),
   orders: router({
     create: publicProcedure
+      .use(orderThrottle)
       .input(z.object({
         items: z.array(z.object({
           productId: z.string(),
@@ -332,7 +437,7 @@ export const appRouter = router({
         })).min(1, "Your bag is empty."),
         name: z.string().trim().min(1, "Name is required").max(120),
         phone: z.string().trim().min(1, "Phone is required").max(32),
-        address: z.string().trim().min(1, "Address is required"),
+        address: z.string().trim().min(1, "Address is required").max(500, "Address is too long."),
         zone: z.enum(["inside", "near", "outside"]),
         paymentMethod: z.enum(["cod", "online"]),
         paymentChoice: z.enum(["full", "advance"]).optional(),
@@ -343,7 +448,9 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const customerId = getCustomerSessionId(ctx.req);
         if (!customerId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Please sign in to place an order." });
-        const subtotal = input.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        // Rebuild every line from the catalogue — client prices are advisory only.
+        const trustedItems = await resolveOrderItems(input.items);
+        const subtotal = trustedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
         let discount = 0;
         let couponCode: string | null = null;
         if (input.couponCode) {
@@ -365,7 +472,7 @@ export const appRouter = router({
         }
         const order = await createOrder({
           customerId,
-          items: JSON.stringify(input.items),
+          items: JSON.stringify(trustedItems),
           subtotal,
           delivery,
           total,

@@ -31,7 +31,7 @@ export default function About() {
                 matched to your personality.
               </p>
             </div>
-            <div className="mt-12 flex items-center justify-between border-t border-white/10 pt-5 text-[10px] uppercase tracking-[.13em] text-white/45">
+            <div className="mt-12 flex items-center justify-between border-t border-white/10 pt-5 text-xs uppercase tracking-[.13em] text-white/45">
               <span>Dhaka / Bangladesh</span>
               <span>Est. 2026</span>
             </div>
@@ -108,7 +108,7 @@ export default function About() {
                 </Link>
                 <Link
                   href="/finder"
-                  className="group inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.15em]"
+                  className="group inline-flex items-center gap-3 text-xs font-bold uppercase tracking-[.15em]"
                 >
                   Find your scent{" "}
                   <span className="grid h-8 w-8 place-items-center rounded-full border border-black/15 transition-transform group-hover:translate-x-1">

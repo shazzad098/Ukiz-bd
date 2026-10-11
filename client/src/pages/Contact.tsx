@@ -98,7 +98,7 @@ export default function Contact() {
                 </div>
               </div>
             </div>
-            <div className="mt-16 border-t border-black/10 pt-5 text-[10px] uppercase tracking-[.13em] text-[#9a9388]">
+            <div className="mt-16 border-t border-black/10 pt-5 text-xs uppercase tracking-[.13em] text-[#9a9388]">
               Response time / usually within 24 hours
             </div>
           </div>
@@ -112,14 +112,14 @@ export default function Contact() {
           >
             <div className="eyebrow mb-6">Send a note</div>
             <div className="grid gap-6">
-              <label className="grid gap-2 text-[10px] font-bold uppercase tracking-[.12em]">
+              <label className="grid gap-2 text-xs font-bold uppercase tracking-[.12em]">
                 Your name
                 <input
                   required
                   className="border-b border-black/15 bg-transparent py-3 text-sm font-normal outline-none focus:border-[#a4824e]"
                 />
               </label>
-              <label className="grid gap-2 text-[10px] font-bold uppercase tracking-[.12em]">
+              <label className="grid gap-2 text-xs font-bold uppercase tracking-[.12em]">
                 Email address
                 <input
                   required
@@ -127,7 +127,7 @@ export default function Contact() {
                   className="border-b border-black/15 bg-transparent py-3 text-sm font-normal outline-none focus:border-[#a4824e]"
                 />
               </label>
-              <label className="grid gap-2 text-[10px] font-bold uppercase tracking-[.12em]">
+              <label className="grid gap-2 text-xs font-bold uppercase tracking-[.12em]">
                 How can we help?
                 <textarea
                   required

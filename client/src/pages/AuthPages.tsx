@@ -42,14 +42,14 @@ export function SignIn() {
       <div className="eyebrow mb-4">Sign in</div>
       <h2 className="serif text-4xl">Good to see you.</h2>
       <form onSubmit={submit} className="mt-8 grid gap-6">
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
           Email
           <span className="flex items-center gap-2">
             <Mail size={15} className="shrink-0 text-[#a4824e]" />
             <input required type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
           </span>
         </label>
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
           Password
           <span className="flex items-center gap-2">
             <LockKeyhole size={15} className="shrink-0 text-[#a4824e]" />
@@ -82,29 +82,29 @@ export function SignUp() {
       <div className="eyebrow mb-4">Sign up</div>
       <h2 className="serif text-4xl">A minute, then all yours.</h2>
       <form onSubmit={submit} className="mt-8 grid gap-6">
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
           Full name
           <span className="flex items-center gap-2">
             <User size={15} className="shrink-0 text-[#a4824e]" />
             <input required autoComplete="name" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
           </span>
         </label>
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
           Email
           <span className="flex items-center gap-2">
             <Mail size={15} className="shrink-0 text-[#a4824e]" />
             <input required type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
           </span>
         </label>
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
           Phone <span className="font-normal normal-case tracking-normal text-[#a39b90]">(optional)</span>
           <input autoComplete="tel" placeholder="01XXXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} />
         </label>
-        <label className="grid gap-1 text-[10px] font-bold uppercase tracking-[.12em]">
-          Password <span className="font-normal normal-case tracking-normal text-[#a39b90]">(min 6 characters)</span>
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[.12em]">
+          Password <span className="font-normal normal-case tracking-normal text-[#a39b90]">(min 8 characters)</span>
           <span className="flex items-center gap-2">
             <LockKeyhole size={15} className="shrink-0 text-[#a4824e]" />
-            <input required type="password" autoComplete="new-password" minLength={6} placeholder="Choose a password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />
+            <input required type="password" autoComplete="new-password" minLength={8} placeholder="Choose a password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />
           </span>
         </label>
         <button disabled={signupPending} className="primary-button dark mt-2 w-full disabled:opacity-50">

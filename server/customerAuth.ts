@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { parse } from "cookie";
-import { ENV } from "./_core/env";
+import { getCookieSecret } from "./_core/env";
 import { getSessionCookieOptions } from "./_core/cookies";
 
 export const CUSTOMER_COOKIE = "ukix_customer_session";
@@ -11,7 +11,7 @@ export const CUSTOMER_COOKIE = "ukix_customer_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 function secret() {
-  return ENV.cookieSecret || "ukix-customer-local-secret";
+  return getCookieSecret();
 }
 
 function sign(payload: string) {

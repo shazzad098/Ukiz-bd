@@ -36,7 +36,7 @@ function FilterGroup({ title, options, selected, onToggle }: { title: string; op
   if (options.length === 0) return null;
   return (
     <div className="border-b border-black/10 py-5 first:pt-0 last:border-b-0">
-      <div className="mb-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#5c584f]">{title}</div>
+      <div className="mb-3 text-xs font-bold uppercase tracking-[.13em] text-[#5c584f]">{title}</div>
       <div className="grid gap-2.5">
         {options.map((option) => (
           <label key={option} className="flex cursor-pointer items-center gap-2.5 text-sm text-[#3d3932]">
@@ -151,7 +151,7 @@ export default function Shop() {
         <FilterGroup title="Vibe" options={vibeOptions} selected={vibes} onToggle={(v) => setVibes((s) => toggleInSet(s, v))} />
         <FilterGroup title="Type" options={typeOptions} selected={types} onToggle={(v) => setTypes((s) => toggleInSet(s, v))} />
         <div className="border-b border-black/10 py-5 last:border-b-0">
-          <div className="mb-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#5c584f]">Price range (৳)</div>
+          <div className="mb-3 text-xs font-bold uppercase tracking-[.13em] text-[#5c584f]">Price range (৳)</div>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -174,7 +174,7 @@ export default function Shop() {
         </div>
       </div>
       {activeFilterCount > 0 && (
-        <button onClick={clearAll} className="mt-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-[#9b6d5d]">
+        <button onClick={clearAll} className="mt-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[.12em] text-[#9b6d5d]">
           <RotateCcw size={12} /> Clear all ({activeFilterCount})
         </button>
       )}
@@ -186,17 +186,17 @@ export default function Shop() {
       <Link href={`/product/${product.id}`} className="block">
         <div className="image-sheen relative aspect-[.86] overflow-hidden rounded-[1.2rem]" style={{ backgroundColor: product.tone }}>
           <img src={product.image} alt={product.name} className="product-image h-full w-full object-cover mix-blend-multiply" loading="lazy" />
-          <span className="absolute left-3 top-3 rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[.12em]">{product.badge ?? "Curated"}</span>
-          <span className="absolute inset-x-3 bottom-3 rounded-full bg-[#151515]/90 py-3 text-center text-[10px] font-bold uppercase tracking-[.12em] text-white opacity-0 transition-opacity group-hover:opacity-100">View composition</span>
+          <span className="absolute left-3 top-3 rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-xs font-bold uppercase tracking-[.12em]">{product.badge ?? "Curated"}</span>
+          <span className="absolute inset-x-3 bottom-3 rounded-full bg-[#151515]/90 py-3 text-center text-xs font-bold uppercase tracking-[.12em] text-white opacity-0 transition-opacity group-hover:opacity-100">View composition</span>
         </div>
         <div className="px-1 pt-4">
-          <div className="text-[10px] font-bold uppercase tracking-[.12em] text-[#907f66]">{product.brand}</div>
+          <div className="text-xs font-bold uppercase tracking-[.12em] text-[#907f66]">{product.brand}</div>
           <div className="mt-1 flex items-baseline justify-between gap-2">
             <h2 className="serif text-[22px]">{product.name}</h2>
-            <span className="whitespace-nowrap text-[10px] text-[#777269]">From {money(fromPrice(product))}</span>
+            <span className="whitespace-nowrap text-xs text-[#777269]">From {money(fromPrice(product))}</span>
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-[#777269]">{product.family} · {product.notes}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] uppercase tracking-[.08em] text-[#9a907e]">
+          <p className="mt-2 text-xs leading-relaxed text-[#777269]">{product.family} · {product.notes}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-xs uppercase tracking-[.08em] text-[#9a907e]">
             {product.audience && product.audience !== "Unisex" && <span className="rounded-full border border-black/10 px-2 py-0.5">{product.audience}</span>}
             {product.vibe && <span className="rounded-full border border-black/10 px-2 py-0.5">{product.vibe}</span>}
             {product.type && <span className="rounded-full border border-black/10 px-2 py-0.5">{product.type}</span>}
@@ -212,13 +212,13 @@ export default function Shop() {
         <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div className="eyebrow">{visible.length} of {products.length} compositions</div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setFiltersOpen((v) => !v)} className="flex items-center gap-2 rounded-full border border-black/15 px-4 py-2 text-[10px] font-bold uppercase tracking-[.12em] md:hidden">
+            <button onClick={() => setFiltersOpen((v) => !v)} className="flex items-center gap-2 rounded-full border border-black/15 px-4 py-2 text-xs font-bold uppercase tracking-[.12em] md:hidden">
               <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
             </button>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
-              className="rounded-full border border-black/15 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[.12em] outline-none"
+              className="rounded-full border border-black/15 bg-transparent px-4 py-2 text-xs uppercase tracking-[.12em] outline-none"
               aria-label="Sort products"
             >
               {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
@@ -236,7 +236,7 @@ export default function Shop() {
             {visible.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-black/15 py-20 text-center text-sm text-[#777269]">
                 No fragrances match those filters.
-                <div><button onClick={clearAll} className="mt-4 text-[10px] font-bold uppercase tracking-[.12em] text-[#8d744e]">Clear all filters</button></div>
+                <div><button onClick={clearAll} className="mt-4 text-xs font-bold uppercase tracking-[.12em] text-[#8d744e]">Clear all filters</button></div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-x-4 gap-y-10 lg:grid-cols-3">{visible.map(productCard)}</div>

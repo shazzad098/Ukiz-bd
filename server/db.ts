@@ -23,6 +23,47 @@ export async function getDb() {
   return _db;
 }
 
+// One-shot health check: actually talks to the database instead of just
+// building a client. Returns ok:false with a short actionable message so
+// startup logs and the admin panel can tell "in-memory fallback" apart
+// from a real Supabase connection.
+export async function checkDatabase(): Promise<{ ok: boolean; error?: string }> {
+  if (!process.env.DATABASE_URL) {
+    return { ok: false, error: "DATABASE_URL is not set — running on in-memory seed data." };
+  }
+  try {
+    const sql = postgres(process.env.DATABASE_URL, {
+      prepare: false,
+      connect_timeout: 10,
+      max: 1,
+    });
+    try {
+      await sql`select 1`;
+      return { ok: true };
+    } finally {
+      await sql.end({ timeout: 2 }).catch(() => {});
+    }
+  } catch (error) {
+    const raw = error instanceof Error ? (error.message ?? String(error)) : String(error);
+    let hint = raw.slice(0, 200);
+    // Supabase pooler speaks its own errors — translate the common ones.
+    if (/tenant\/user .* not found/i.test(raw)) {
+      hint =
+        "Supabase pooler says the user/project is unknown. The project ref in the username (postgres.[ref]) does not match this pooler region, or the project was deleted/paused. Copy a fresh Transaction-pooler URI from Supabase Dashboard → Project Settings → Database.";
+    } else if (/password authentication failed|auth failed/i.test(raw)) {
+      hint =
+        "Password rejected. Reset the DB password in Supabase Dashboard → Project Settings → Database, then paste the new pooler URI into .env (URL-encode special chars).";
+    } else if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(raw)) {
+      hint =
+        "DNS lookup failed for the database host. Check the hostname in DATABASE_URL and your network/VPN.";
+    } else if (/ETIMEDOUT|connect_timeout|timeout/i.test(raw)) {
+      hint =
+        "Connection timed out. If Supabase, use the pooler URI (port 6543, Transaction mode) — direct port 5432 is often blocked.";
+    }
+    return { ok: false, error: hint };
+  }
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");

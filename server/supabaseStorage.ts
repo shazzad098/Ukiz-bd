@@ -36,6 +36,33 @@ function extFor(mime: string): string {
   return "jpg";
 }
 
+// Magic-byte sniffing: the client-declared MIME is never trusted on its own,
+// otherwise a script/polyglot file could be stored and served as an image.
+export function sniffImageKind(data: Buffer): "jpeg" | "png" | "webp" | "gif" | null {
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "jpeg";
+  if (
+    data.length >= 8 &&
+    data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47 &&
+    data[4] === 0x0d && data[5] === 0x0a && data[6] === 0x1a && data[7] === 0x0a
+  )
+    return "png";
+  if (
+    data.length >= 12 &&
+    data.toString("ascii", 0, 4) === "RIFF" &&
+    data.toString("ascii", 8, 12) === "WEBP"
+  )
+    return "webp";
+  if (
+    data.length >= 6 &&
+    data.toString("ascii", 0, 3) === "GIF" &&
+    (data.toString("ascii", 3, 6) === "87a" || data.toString("ascii", 3, 6) === "89a")
+  )
+    return "gif";
+  return null;
+}
+
+const KIND_TO_MIME = { jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" } as const;
+
 /** Upload a product image buffer to Supabase Storage. Returns the public URL. */
 export async function uploadProductImage(
   data: Buffer,
@@ -44,6 +71,10 @@ export async function uploadProductImage(
 ): Promise<string> {
   if (!ALLOWED_MIME.has(contentType)) throw new Error("Only JPG, PNG, WEBP or GIF images are allowed.");
   if (data.length === 0 || data.length > MAX_BYTES) throw new Error("Image must be smaller than 5MB.");
+  const kind = sniffImageKind(data);
+  if (!kind || KIND_TO_MIME[kind] !== contentType) {
+    throw new Error("File content does not match its image type.");
+  }
   const client = getClient();
   if (!client) {
     throw new Error(
