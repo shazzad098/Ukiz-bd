@@ -64,6 +64,10 @@ export const orders = pgTable("orders", {
   status: varchar("status", { length: 32 }).default("Pending").notNull(),
   zone: varchar("zone", { length: 16 }).default("inside").notNull(),
   paymentMethod: varchar("paymentMethod", { length: 16 }).default("cod").notNull(),
+  paymentStatus: varchar("paymentStatus", { length: 24 }).default("unpaid").notNull(),
+  paymentProvider: varchar("paymentProvider", { length: 32 }),
+  paymentReference: varchar("paymentReference", { length: 128 }),
+  paymentUpdatedAt: timestamp("paymentUpdatedAt"),
   paidAmount: integer("paidAmount").default(0).notNull(),
   senderNumber: varchar("senderNumber", { length: 32 }),
   trxId: varchar("trxId", { length: 64 }),
@@ -78,6 +82,63 @@ export const orders = pgTable("orders", {
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  orderId: integer("orderId").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerPaymentId: varchar("providerPaymentId", { length: 128 }).unique(),
+  providerTransactionId: varchar("providerTransactionId", { length: 128 }),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 3 }).default("BDT").notNull(),
+  status: varchar("status", { length: 24 }).default("initiated").notNull(),
+  rawPayload: text("rawPayload"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
+});
+
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = typeof payments.$inferInsert;
+
+export const contacts = pgTable("contacts", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  message: text("message").notNull(),
+  status: varchar("status", { length: 16 }).default("new").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
+});
+
+export type Contact = typeof contacts.$inferSelect;
+export type InsertContact = typeof contacts.$inferInsert;
+
+export const inventoryEvents = pgTable("inventory_events", {
+  id: serial("id").primaryKey(),
+  productId: integer("productId").notNull(),
+  size: varchar("size", { length: 32 }),
+  quantity: integer("quantity").notNull(),
+  kind: varchar("kind", { length: 24 }).notNull(),
+  orderId: integer("orderId"),
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type InventoryEvent = typeof inventoryEvents.$inferSelect;
+export type InsertInventoryEvent = typeof inventoryEvents.$inferInsert;
+
+export const analyticsEvents = pgTable("analytics_events", {
+  id: serial("id").primaryKey(),
+  event: varchar("event", { length: 32 }).notNull(),
+  path: varchar("path", { length: 512 }).notNull(),
+  sessionId: varchar("sessionId", { length: 64 }),
+  referrer: varchar("referrer", { length: 512 }),
+  metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export type InsertAnalyticsEvent = typeof analyticsEvents.$inferInsert;
 
 /**
  * Discount coupons. `type` is "percent" (0–100) or "flat" (taka).

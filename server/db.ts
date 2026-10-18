@@ -138,7 +138,7 @@ export async function getUserByOpenId(openId: string) {
 
 // TODO: add feature queries here as your schema grows.
 import { customers, InsertCustomer, Customer } from "../drizzle/schema";
-import { orders, InsertOrder, Order, OrderItem } from "../drizzle/schema";
+import { orders, InsertOrder, Order, OrderItem, payments, Payment, InsertPayment, contacts, Contact, InsertContact, inventoryEvents, InventoryEvent, analyticsEvents, AnalyticsEvent, InsertAnalyticsEvent } from "../drizzle/schema";
 import { products, InsertProduct, Product } from "../drizzle/schema";
 
 const seedProducts: InsertProduct[] = [
@@ -301,6 +301,8 @@ export async function touchCustomerSignin(id: number): Promise<void> {
 
 let inMemoryOrders: Order[] = [];
 let nextOrderId = 1;
+const inMemoryInventoryEvents: InventoryEvent[] = [];
+let nextInventoryEventId = 1;
 
 export const FREE_DELIVERY_THRESHOLD = 3000;
 export const DELIVERY_FEE = 120;
@@ -330,6 +332,10 @@ export async function createOrder(input: InsertOrder): Promise<Order> {
       status: input.status ?? "Pending",
       zone: input.zone ?? "inside",
       paymentMethod: input.paymentMethod ?? "cod",
+      paymentStatus: input.paymentStatus ?? "unpaid",
+      paymentProvider: input.paymentProvider ?? null,
+      paymentReference: input.paymentReference ?? null,
+      paymentUpdatedAt: input.paymentUpdatedAt ?? null,
       paidAmount: input.paidAmount ?? 0,
       senderNumber: input.senderNumber ?? null,
       trxId: input.trxId ?? null,
@@ -350,6 +356,243 @@ export async function createOrder(input: InsertOrder): Promise<Order> {
   return created;
 }
 
+export async function getOrderById(id: number): Promise<Order | undefined> {
+  const db = await getDb();
+  if (!db) return inMemoryOrders.find(row => row.id === id);
+  const rows = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function getOrderByPaymentReference(reference: string): Promise<Order | undefined> {
+  const db = await getDb();
+  if (!db) return inMemoryOrders.find(row => row.paymentReference === reference);
+  const rows = await db.select().from(orders).where(eq(orders.paymentReference, reference)).limit(1);
+  return rows[0];
+}
+
+export async function updateOrderPayment(id: number, patch: Pick<InsertOrder, "paymentStatus" | "paymentProvider" | "paymentReference" | "paidAmount"> & { status?: string }) {
+  const db = await getDb();
+  if (!db) {
+    inMemoryOrders = inMemoryOrders.map(row => row.id === id ? { ...row, ...patch, paymentUpdatedAt: new Date(), updatedAt: new Date() } : row);
+    return;
+  }
+  await db.update(orders).set({ ...patch, paymentUpdatedAt: new Date(), updatedAt: new Date() }).where(eq(orders.id, id));
+}
+
+type InventoryRequest = { productId: string; size: string; quantity: number; premium?: boolean };
+
+function numberRecord(raw: unknown): Record<string, number> {
+  if (typeof raw !== "string") return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>)
+        .map(([key, value]) => [key, Number(value)] as const)
+        .filter(([key, value]) => key.length > 0 && Number.isFinite(value) && value >= 0),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function reserveInMemoryInventory(items: InventoryRequest[], orderId: number | null) {
+  ensureSeeded();
+  const byProduct = new Map<number, { sizes: Map<string, number>; premium: number }>();
+  for (const item of items) {
+    const productId = Number(item.productId);
+    const product = inMemoryProducts.find(row => row.id === productId);
+    if (!product) throw new Error("Product is no longer available.");
+    const bucket = byProduct.get(productId) ?? { sizes: new Map<string, number>(), premium: 0 };
+    bucket.sizes.set(item.size, (bucket.sizes.get(item.size) ?? 0) + item.quantity);
+    if (item.premium) bucket.premium += item.quantity;
+    byProduct.set(productId, bucket);
+  }
+
+  for (const [productId, bucket] of Array.from(byProduct.entries())) {
+    const product = inMemoryProducts.find(row => row.id === productId)!;
+    if (product.status === "Out of stock") throw new Error(`"${product.name}" is currently out of stock.`);
+    const stocks = numberRecord(product.sizeStocks);
+    const hasSizeStocks = Object.keys(stocks).length > 0;
+    let sizeTotal = 0;
+    for (const [size, quantity] of Array.from(bucket.sizes.entries())) {
+      const available = stocks[size] ?? (hasSizeStocks ? 0 : product.stock);
+      if (quantity > available) throw new Error(`Only ${available} of "${product.name}" (${size}) are available.`);
+      if (hasSizeStocks) stocks[size] = available - quantity;
+      sizeTotal += quantity;
+    }
+    if (bucket.premium > product.premiumStock) {
+      throw new Error(`Only ${product.premiumStock} premium options are available for "${product.name}".`);
+    }
+    product.sizeStocks = hasSizeStocks ? JSON.stringify(stocks) : product.sizeStocks;
+    product.stock = Math.max(0, product.stock - sizeTotal);
+    product.premiumStock -= bucket.premium;
+    product.status = product.stock === 0 ? "Out of stock" : product.stock <= 5 ? "Low stock" : "In stock";
+    product.updatedAt = new Date();
+    for (const [size, quantity] of Array.from(bucket.sizes.entries())) {
+      inMemoryInventoryEvents.push({
+        id: nextInventoryEventId++, productId, size, quantity: -quantity, kind: "sale", orderId,
+        note: "Atomic checkout reservation", createdAt: new Date(),
+      });
+    }
+  }
+}
+
+/**
+ * Locks every affected product row, verifies stock again under that lock,
+ * decrements inventory, writes the order, and records audit events in one DB
+ * transaction. This is the boundary that prevents overselling under load.
+ */
+export async function createOrderWithInventory(input: InsertOrder, items: InventoryRequest): Promise<Order>;
+export async function createOrderWithInventory(input: InsertOrder, items: InventoryRequest[]): Promise<Order>;
+export async function createOrderWithInventory(input: InsertOrder, items: InventoryRequest | InventoryRequest[]): Promise<Order> {
+  const requests = Array.isArray(items) ? items : [items];
+  const db = await getDb();
+  if (!db) {
+    const eventStart = inMemoryInventoryEvents.length;
+    reserveInMemoryInventory(requests, null);
+    const order = await createOrder(input);
+    for (let index = eventStart; index < inMemoryInventoryEvents.length; index += 1) inMemoryInventoryEvents[index]!.orderId = order.id;
+    return order;
+  }
+
+  return db.transaction(async tx => {
+    const ids = Array.from(new Set(requests.map(item => Number(item.productId)))).sort((a, b) => a - b);
+    const locked = new Map<number, Product>();
+    for (const productId of ids) {
+      const rows = await tx.select().from(products).where(eq(products.id, productId)).for("update");
+      if (!rows[0]) throw new Error("Product is no longer available.");
+      locked.set(productId, rows[0]);
+    }
+
+    const changes = new Map<number, { sizes: Record<string, number>; quantities: Map<string, number>; premium: number; total: number }>();
+    for (const item of requests) {
+      const productId = Number(item.productId);
+      const product = locked.get(productId);
+      if (!product) throw new Error("Product is no longer available.");
+      const change = changes.get(productId) ?? { sizes: numberRecord(product.sizeStocks), quantities: new Map(), premium: 0, total: 0 };
+      const hasSizeStocks = Object.keys(change.sizes).length > 0;
+      const available = change.sizes[item.size] ?? (hasSizeStocks ? 0 : product.stock - change.total);
+      const requested = (change.quantities.get(item.size) ?? 0) + item.quantity;
+      if (item.quantity > available) throw new Error(`Only ${available} of "${product.name}" (${item.size}) are available.`);
+      if (hasSizeStocks) change.sizes[item.size] = available - item.quantity;
+      change.quantities.set(item.size, requested);
+      change.total += item.quantity;
+      if (item.premium) change.premium += item.quantity;
+      changes.set(productId, change);
+    }
+
+    for (const [productId, change] of Array.from(changes.entries())) {
+      const product = locked.get(productId)!;
+      if (change.premium > product.premiumStock) {
+        throw new Error(`Only ${product.premiumStock} premium options are available for "${product.name}".`);
+      }
+      const nextStock = Math.max(0, product.stock - change.total);
+      await tx.update(products).set({
+        sizeStocks: Object.keys(change.sizes).length > 0 ? JSON.stringify(change.sizes) : product.sizeStocks,
+        stock: nextStock,
+        premiumStock: product.premiumStock - change.premium,
+        status: nextStock === 0 ? "Out of stock" : nextStock <= 5 ? "Low stock" : "In stock",
+        updatedAt: new Date(),
+      }).where(eq(products.id, productId));
+    }
+
+    const rows = await tx.insert(orders).values(input).returning();
+    const order = rows[0];
+    if (!order) throw new Error("Failed to create order");
+    await tx.insert(inventoryEvents).values(requests.map(item => ({
+      productId: Number(item.productId), size: item.size, quantity: -item.quantity,
+      kind: "sale", orderId: order.id, note: "Atomic checkout reservation",
+    })));
+    return order;
+  });
+}
+
+export async function createContact(input: InsertContact): Promise<Contact> {
+  const db = await getDb();
+  if (!db) {
+    const row: Contact = { ...input, id: nextContactId++, status: input.status ?? "new", createdAt: new Date(), updatedAt: new Date() };
+    inMemoryContacts.push(row);
+    return row;
+  }
+  const rows = await db.insert(contacts).values(input).returning();
+  if (!rows[0]) throw new Error("Failed to create contact message");
+  return rows[0];
+}
+
+let inMemoryContacts: Contact[] = [];
+let nextContactId = 1;
+
+export async function listContacts(): Promise<Contact[]> {
+  const db = await getDb();
+  if (!db) return [...inMemoryContacts].reverse();
+  return [...await db.select().from(contacts)].reverse();
+}
+
+export async function updateContactStatus(id: number, status: string) {
+  const db = await getDb();
+  if (!db) {
+    inMemoryContacts = inMemoryContacts.map(row => row.id === id ? { ...row, status, updatedAt: new Date() } : row);
+    return;
+  }
+  await db.update(contacts).set({ status, updatedAt: new Date() }).where(eq(contacts.id, id));
+}
+
+let inMemoryPayments: Payment[] = [];
+let nextPaymentId = 1;
+
+export async function createPayment(input: InsertPayment): Promise<Payment> {
+  const db = await getDb();
+  if (!db) {
+    const row: Payment = { ...input, id: nextPaymentId++, providerPaymentId: input.providerPaymentId ?? null, providerTransactionId: input.providerTransactionId ?? null, currency: input.currency ?? "BDT", status: input.status ?? "initiated", rawPayload: input.rawPayload ?? null, createdAt: new Date(), updatedAt: new Date() };
+    inMemoryPayments.push(row);
+    return row;
+  }
+  const rows = await db.insert(payments).values(input).returning();
+  if (!rows[0]) throw new Error("Failed to create payment");
+  return rows[0];
+}
+
+export async function findPaymentByProviderId(providerPaymentId: string) {
+  const db = await getDb();
+  if (!db) return inMemoryPayments.find(row => row.providerPaymentId === providerPaymentId);
+  const rows = await db.select().from(payments).where(eq(payments.providerPaymentId, providerPaymentId)).limit(1);
+  return rows[0];
+}
+
+export async function updatePayment(id: number, patch: Partial<InsertPayment>) {
+  const db = await getDb();
+  if (!db) {
+    inMemoryPayments = inMemoryPayments.map(row => row.id === id ? { ...row, ...patch, updatedAt: new Date() } : row);
+    return;
+  }
+  await db.update(payments).set({ ...patch, updatedAt: new Date() }).where(eq(payments.id, id));
+}
+
+let inMemoryAnalytics: AnalyticsEvent[] = [];
+let nextAnalyticsId = 1;
+
+export async function createAnalyticsEvent(input: InsertAnalyticsEvent): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    inMemoryAnalytics.push({ ...input, id: nextAnalyticsId++, sessionId: input.sessionId ?? null, referrer: input.referrer ?? null, metadata: input.metadata ?? null, createdAt: new Date() });
+    if (inMemoryAnalytics.length > 5000) inMemoryAnalytics = inMemoryAnalytics.slice(-5000);
+    return;
+  }
+  await db.insert(analyticsEvents).values(input);
+}
+
+export async function getAnalyticsSummary() {
+  const db = await getDb();
+  const rows = db
+    ? await db.select().from(analyticsEvents).orderBy(desc(analyticsEvents.createdAt)).limit(2000)
+    : [...inMemoryAnalytics].reverse();
+  const sessions = new Set(rows.map(row => row.sessionId).filter(Boolean));
+  const byEvent: Record<string, number> = {};
+  for (const row of rows) byEvent[row.event] = (byEvent[row.event] ?? 0) + 1;
+  return { total: rows.length, uniqueSessions: sessions.size, byEvent, latest: rows.slice(0, 20) };
+}
+
 export async function listOrders(): Promise<Order[]> {
   const db = await getDb();
   if (!db) return [...inMemoryOrders].reverse();
@@ -367,10 +610,61 @@ export async function listOrdersByCustomer(customerId: number): Promise<Order[]>
 export async function updateOrderStatus(id: number, status: string): Promise<void> {
   const db = await getDb();
   if (!db) {
+    const order = inMemoryOrders.find(row => row.id === id);
+    if (!order) return;
+    if (status === "Cancelled" && order.status !== "Cancelled") {
+      ensureSeeded();
+      for (const item of parseOrderItems(order.items)) {
+        const product = inMemoryProducts.find(row => row.id === Number(item.productId));
+        if (!product) continue;
+        const stocks = numberRecord(product.sizeStocks);
+        if (Object.keys(stocks).length > 0) stocks[item.size] = (stocks[item.size] ?? 0) + item.quantity;
+        product.sizeStocks = Object.keys(stocks).length > 0 ? JSON.stringify(stocks) : product.sizeStocks;
+        product.stock += item.quantity;
+        if (item.premium) product.premiumStock += item.quantity;
+        product.status = product.stock === 0 ? "Out of stock" : product.stock <= 5 ? "Low stock" : "In stock";
+        inMemoryInventoryEvents.push({ id: nextInventoryEventId++, productId: product.id, size: item.size, quantity: item.quantity, kind: "release", orderId: id, note: "Cancelled order release", createdAt: new Date() });
+      }
+    }
     inMemoryOrders = inMemoryOrders.map(o => o.id === id ? { ...o, status, updatedAt: new Date() } : o);
     return;
   }
-  await db.update(orders).set({ status }).where(eq(orders.id, id));
+  await db.transaction(async tx => {
+    const lockedOrders = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
+    const order = lockedOrders[0];
+    if (!order) return;
+    if (status === "Cancelled" && order.status !== "Cancelled") {
+      const items = parseOrderItems(order.items);
+      const ids = Array.from(new Set(items.map(item => Number(item.productId)))).sort((a, b) => a - b);
+      const locked = new Map<number, Product>();
+      for (const productId of ids) {
+        const rows = await tx.select().from(products).where(eq(products.id, productId)).for("update");
+        if (rows[0]) locked.set(productId, rows[0]);
+      }
+      const released = new Map<number, { stocks: Record<string, number>; stock: number; premiumStock: number }>();
+      for (const item of items) {
+        const productId = Number(item.productId);
+        const product = locked.get(productId);
+        if (!product) continue;
+        const change = released.get(productId) ?? { stocks: numberRecord(product.sizeStocks), stock: product.stock, premiumStock: product.premiumStock };
+        if (Object.keys(change.stocks).length > 0) change.stocks[item.size] = (change.stocks[item.size] ?? 0) + item.quantity;
+        change.stock += item.quantity;
+        if (item.premium) change.premiumStock += item.quantity;
+        released.set(productId, change);
+        await tx.insert(inventoryEvents).values({ productId, size: item.size, quantity: item.quantity, kind: "release", orderId: id, note: "Cancelled order release" });
+      }
+      for (const [productId, change] of Array.from(released.entries())) {
+        await tx.update(products).set({
+          sizeStocks: Object.keys(change.stocks).length > 0 ? JSON.stringify(change.stocks) : locked.get(productId)!.sizeStocks,
+          stock: change.stock,
+          premiumStock: change.premiumStock,
+          status: change.stock === 0 ? "Out of stock" : change.stock <= 5 ? "Low stock" : "In stock",
+          updatedAt: new Date(),
+        }).where(eq(products.id, productId));
+      }
+    }
+    await tx.update(orders).set({ status, updatedAt: new Date() }).where(eq(orders.id, id));
+  });
 }
 
 // ---------------------------------------------------------------------------

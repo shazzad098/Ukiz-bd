@@ -1,3 +1,11 @@
 User-agent: *
 Allow: /
+Disallow: /signin
+Disallow: /signup
+Disallow: /account
+Disallow: /wishlist
+Disallow: /cart
+Disallow: /checkout
+Disallow: /order-success
+Disallow: /admin
 Sitemap: https://ukizbd.com/sitemap.xml

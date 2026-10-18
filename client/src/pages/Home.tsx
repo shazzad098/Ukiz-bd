@@ -29,6 +29,7 @@ import { usePublicSettings } from "@/lib/settings";
 import { fallbackProducts, fromPrice, hasPremium, premiumAvailable, priceForSize, stockForSize, useProducts, type StoreProduct } from "@/lib/products";
 import { useCustomer } from "@/lib/customer";
 import { useCart } from "@/lib/cart";
+import { imageSrcSet, imageUrl } from "@/lib/images";
 
 export type Product = StoreProduct;
 
@@ -60,7 +61,7 @@ function ProductCard({ product, onAdd, onWish, wished }: { product: Product; onA
   return (
     <article className="product-card group min-w-[255px] flex-1">
       <div className="image-sheen relative aspect-[.86] overflow-hidden rounded-[1.2rem] bg-[#ded9cd]" style={{ backgroundColor: product.tone }}>
-        <img src={product.image} alt={`${product.brand} ${product.name}`} className="product-image h-full w-full object-cover mix-blend-multiply" loading="lazy" />
+        <img src={imageUrl(product.image, 900)} srcSet={imageSrcSet(product.image)} sizes="(min-width: 1024px) 25vw, (min-width: 640px) 45vw, 90vw" alt={`${product.brand} ${product.name}`} className="product-image h-full w-full object-cover mix-blend-multiply" loading="lazy" decoding="async" />
         <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
           {product.badge && <span className="rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-xs font-bold uppercase tracking-[.12em] backdrop-blur">{product.badge}</span>}
         </div>

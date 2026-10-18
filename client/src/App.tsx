@@ -3,6 +3,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import AnalyticsTracker from "./components/AnalyticsTracker";
+import SeoController from "./components/Seo";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { CartProvider } from "@/lib/cart";
 import Home from "./pages/Home";
@@ -67,5 +69,5 @@ function Router() {
 }
 
 export default function App() {
-  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="top-center" /><CartProvider><Router /></CartProvider></TooltipProvider></ThemeProvider></ErrorBoundary>;
+  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="top-center" /><CartProvider><SeoController /><AnalyticsTracker /><Router /></CartProvider></TooltipProvider></ThemeProvider></ErrorBoundary>;
 }

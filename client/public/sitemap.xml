@@ -6,4 +6,10 @@
   <url><loc>https://ukizbd.com/about</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://ukizbd.com/contact</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://ukizbd.com/refund-policy</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://ukizbd.com/product/1</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ukizbd.com/product/2</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ukizbd.com/product/3</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ukizbd.com/product/4</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ukizbd.com/product/5</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://ukizbd.com/product/6</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
 </urlset>

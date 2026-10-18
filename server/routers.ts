@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminSessionProcedure, contactThrottle, couponThrottle, loginRateLimit, orderThrottle, publicProcedure, router } from "./_core/trpc";
+import { adminSessionProcedure, analyticsThrottle, contactThrottle, couponThrottle, loginRateLimit, orderThrottle, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { notifyOwner } from "./_core/notification";
 import { clearAdminSession, isAdminAuthenticated, issueAdminSession, validateAdminCredentials } from "./adminAuth";
@@ -15,11 +15,12 @@ import {
 import { z } from "zod";
 
 import { createCustomer, getCustomerByEmail, getCustomerById, listCustomers, touchCustomerSignin } from "./db";
-import { checkCoupon, checkDatabase, createCoupon, createOrder, deleteCoupon, getStoreSettings, listCoupons, listOrders, listOrdersByCustomer, parseOrderItems, setStoreSetting, updateCoupon, updateOrderStatus } from "./db";
+import { checkCoupon, checkDatabase, createAnalyticsEvent, createContact, createCoupon, createOrderWithInventory, createPayment, deleteCoupon, getAnalyticsSummary, getStoreSettings, listContacts, listCoupons, listOrders, listOrdersByCustomer, parseOrderItems, setStoreSetting, updateContactStatus, updateCoupon, updateOrderPayment, updateOrderStatus } from "./db";
 import { deliveryFeeFor } from "../shared/order";
 import { ORDER_STATUSES } from "../drizzle/schema";
 import { uploadProductImage } from "./supabaseStorage";
 import { listProducts, createProduct, deleteProduct, updateProduct } from "./db";
+import { createBkashPayment, isBkashConfigured } from "./bkash";
 
 // ---------------------------------------------------------------------------
 // Order pricing integrity.
@@ -96,8 +97,9 @@ export async function resolveOrderItems(items: OrderLineInput[]) {
     const sizeKey = `${item.productId}:${item.size}`;
     const requestedSize = (requestedBySize.get(sizeKey) ?? 0) + item.quantity;
     requestedBySize.set(sizeKey, requestedSize);
-    const available = parseStockRecord(product.sizeStocks)[item.size];
-    if (available !== undefined && requestedSize > available) {
+    const stockRecord = parseStockRecord(product.sizeStocks);
+    const available = stockRecord[item.size] ?? (Object.keys(stockRecord).length === 0 ? product.stock : 0);
+    if (requestedSize > available) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: `Only ${available} of "${product.name}" (${item.size}) are available.`,
@@ -267,6 +269,8 @@ export const appRouter = router({
         status: o.status,
         zone: o.zone,
         paymentMethod: o.paymentMethod,
+        paymentStatus: o.paymentStatus,
+        paymentProvider: o.paymentProvider,
         paidAmount: o.paidAmount,
         senderNumber: o.senderNumber,
         trxId: o.trxId,
@@ -284,6 +288,16 @@ export const appRouter = router({
         await updateOrderStatus(input.id, input.status);
         return { success: true };
       }),
+    analytics: adminSessionProcedure.query(() => getAnalyticsSummary()),
+    contacts: router({
+      list: adminSessionProcedure.query(() => listContacts()),
+      updateStatus: adminSessionProcedure
+        .input(z.object({ id: z.number(), status: z.enum(["new", "notified", "read", "resolved"]) }))
+        .mutation(async ({ input }) => {
+          await updateContactStatus(input.id, input.status);
+          return { success: true };
+        }),
+    }),
     coupons: router({
       list: adminSessionProcedure.query(async () => listCoupons()),
       create: adminSessionProcedure
@@ -446,18 +460,42 @@ export const appRouter = router({
         message: z.string().trim().min(1, "Message is required").max(4000),
       }))
       .mutation(async ({ input }) => {
-        const delivered = await notifyOwner({
-          title: `New contact message from ${input.name}`,
-          content: `Email: ${input.email}\n\n${input.message}`,
-        });
-        if (!delivered) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "We could not deliver your message right now. Please email us directly.",
+        const row = await createContact(input);
+        try {
+          const delivered = await notifyOwner({
+            title: `New contact message from ${input.name}`,
+            content: `Email: ${input.email}\n\n${input.message}`,
           });
+          if (delivered) await updateContactStatus(row.id, "notified");
+        } catch (error) {
+          console.warn("[Contact] Message stored but owner notification failed:", error);
         }
+        return { success: true, contactId: row.id } as const;
+      }),
+  }),
+  analytics: router({
+    track: publicProcedure
+      .use(analyticsThrottle)
+      .input(z.object({
+        event: z.enum(["page_view", "product_view", "add_to_cart", "checkout_started", "order_completed", "client_error"]),
+        path: z.string().trim().min(1).max(512),
+        sessionId: z.string().trim().max(64).optional(),
+        referrer: z.string().trim().max(512).optional(),
+        metadata: z.record(z.string(), z.string()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await createAnalyticsEvent({
+          event: input.event,
+          path: input.path,
+          sessionId: input.sessionId,
+          referrer: input.referrer,
+          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        });
         return { success: true } as const;
       }),
+  }),
+  payments: router({
+    status: publicProcedure.query(() => ({ bkash: isBkashConfigured() })),
   }),
   customers: router({
     list: adminSessionProcedure.query(async () => {
@@ -514,32 +552,58 @@ export const appRouter = router({
         const threshold = Number(settings.freeThreshold) || 3000;
         const delivery = deliveryFeeFor(input.zone, subtotal - discount, threshold);
         const total = subtotal - discount + delivery;
-        let paidAmount = 0;
+        const paidAmount = 0;
+        let paymentStatus = "unpaid";
         if (input.paymentMethod === "online") {
-          if (!input.senderNumber || !input.trxId) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Sender number and transaction ID are required for bKash / Nagad payment." });
+          if (!isBkashConfigured()) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Online payment is not configured yet. Please choose Cash on Delivery." });
           }
-          paidAmount = input.paymentChoice === "advance" ? delivery : total;
+          paymentStatus = "initiated";
         }
-        const order = await createOrder({
-          customerId,
-          items: JSON.stringify(trustedItems),
-          subtotal,
-          delivery,
-          total,
-          status: "Pending",
-          name: input.name,
-          phone: input.phone,
-          address: input.address,
-          zone: input.zone,
-          paymentMethod: input.paymentMethod,
-          paidAmount,
-          senderNumber: input.senderNumber ?? null,
-          trxId: input.trxId ?? null,
-          couponCode,
-          discount,
-        });
-        return { success: true, orderId: order.id, total: order.total };
+        let order;
+        try {
+          order = await createOrderWithInventory({
+            customerId,
+            items: JSON.stringify(trustedItems),
+            subtotal,
+            delivery,
+            total,
+            status: "Pending",
+            name: input.name,
+            phone: input.phone,
+            address: input.address,
+            zone: input.zone,
+            paymentMethod: input.paymentMethod,
+            paymentStatus,
+            paymentProvider: input.paymentMethod === "online" ? "bkash" : null,
+            paymentReference: null,
+            paidAmount,
+            senderNumber: null,
+            trxId: null,
+            couponCode,
+            discount,
+          }, input.items.map(item => ({
+            productId: item.productId,
+            size: item.size,
+            quantity: item.quantity,
+            premium: Boolean(item.premium),
+          })));
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Inventory is no longer available." });
+        }
+        let paymentUrl: string | null = null;
+        if (input.paymentMethod === "online") {
+          try {
+            const payment = await createBkashPayment({ orderId: order.id, amount: order.total, customerReference: String(customerId) });
+            await createPayment({ orderId: order.id, provider: "bkash", providerPaymentId: payment.paymentId, amount: order.total, status: "initiated", rawPayload: JSON.stringify(payment.raw) });
+            await updateOrderPayment(order.id, { paymentStatus: "initiated", paymentProvider: "bkash", paymentReference: payment.merchantInvoiceNumber, paidAmount: 0 });
+            paymentUrl = payment.redirectUrl;
+          } catch (error) {
+            await updateOrderStatus(order.id, "Cancelled");
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Could not initialize online payment." });
+          }
+        }
+        return { success: true, orderId: order.id, total: order.total, paymentUrl };
       }),
     mine: publicProcedure.query(async ({ ctx }) => {
       const customerId = getCustomerSessionId(ctx.req);

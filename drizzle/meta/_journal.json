@@ -21,6 +21,20 @@
       "when": 1790104457905,
       "tag": "0002_gigantic_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792313413903,
+      "tag": "0003_redundant_chamber",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792313699387,
+      "tag": "0004_chilly_lila_cheney",
+      "breakpoints": true
     }
   ],
   "version": "7"

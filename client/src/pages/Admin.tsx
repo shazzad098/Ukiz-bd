@@ -45,6 +45,7 @@ const menu = [
   { label: "Overview", path: "/admin", icon: LayoutDashboard },
   { label: "Products", path: "/admin/products", icon: Package },
   { label: "Orders", path: "/admin/orders", icon: ShoppingCart },
+  { label: "Inbox", path: "/admin/contacts", icon: Mail },
   { label: "Customers", path: "/admin/customers", icon: Users },
   { label: "Coupons", path: "/admin/coupons", icon: Tag },
   { label: "Settings", path: "/admin/settings", icon: Settings },
@@ -1106,6 +1107,16 @@ function AdminDashboard() {
       enabled: auth.data?.authenticated,
     }
   );
+  const contactsQuery = trpc.admin.contacts.list.useQuery(undefined, {
+    enabled: auth.data?.authenticated,
+  });
+  const analyticsQuery = trpc.admin.analytics.useQuery(undefined, {
+    enabled: auth.data?.authenticated,
+  });
+  const updateContactStatus = trpc.admin.contacts.updateStatus.useMutation({
+    onSuccess: () => contactsQuery.refetch(),
+    onError: () => toast.error("Could not update the message status."),
+  });
   const liveOrders = ordersQuery.data ?? [];
   const updateOrderStatus = trpc.admin.updateOrderStatus.useMutation({
     onSuccess: async () => {
@@ -1772,6 +1783,11 @@ function AdminDashboard() {
                   icon={Package}
                 />
               </div>
+              <section className="mt-4 grid gap-4 sm:grid-cols-3">
+                <Metric label="Page views" value={String(analyticsQuery.data?.byEvent.page_view ?? 0)} change={`${analyticsQuery.data?.uniqueSessions ?? 0} sessions`} icon={Eye} />
+                <Metric label="Checkout starts" value={String(analyticsQuery.data?.byEvent.checkout_started ?? 0)} change="First-party events" icon={ShoppingCart} />
+                <Metric label="Client errors" value={String(analyticsQuery.data?.byEvent.client_error ?? 0)} change="Needs review" icon={ShieldCheck} />
+              </section>
               <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_.6fr]">
                 <section className="rounded-2xl border border-black/10 bg-[#f8f6f0] p-5 md:p-6">
                   <div className="flex items-center justify-between">
@@ -3005,6 +3021,9 @@ function AdminDashboard() {
                                     Paid ৳{paid.toLocaleString("en-BD")} · Due ৳
                                     {due.toLocaleString("en-BD")}
                                   </div>
+                                  <div className={`mt-1 text-xs font-semibold ${order.paymentStatus === "paid" ? "text-[#54724c]" : order.paymentStatus === "failed" || order.paymentStatus === "cancelled" ? "text-red-600" : "text-[#9c614b]"}`}>
+                                    Payment: {order.paymentStatus ?? "unpaid"}{order.paymentProvider ? ` · ${order.paymentProvider}` : ""}
+                                  </div>
                                   {order.trxId ? (
                                     <div className="mt-0.5 text-xs text-[#918a7f]">
                                       Trx {order.trxId}
@@ -3079,6 +3098,19 @@ function AdminDashboard() {
                       </button>
                     </div>
                   )}
+                </>
+              ) : current.path === "/admin/contacts" ? (
+                <>
+                  <div className="mb-5 flex items-center justify-between gap-4">
+                    <div>
+                      <div className="eyebrow">Inbox / {(contactsQuery.data ?? []).filter(row => row.status !== "resolved").length}</div>
+                      <div className="mt-2 text-xl font-semibold">Customer messages, kept in one place.</div>
+                    </div>
+                    <button onClick={() => contactsQuery.refetch()} className="secondary-button py-2" disabled={contactsQuery.isFetching}>
+                      {contactsQuery.isFetching ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
+                  {contactsQuery.isLoading ? <div className="py-10 text-center text-sm text-[#918a7f]">Loading messages...</div> : (contactsQuery.data ?? []).length === 0 ? <div className="rounded-2xl border border-dashed border-black/15 py-14 text-center text-sm text-[#918a7f]">No contact messages yet.</div> : <div className="grid gap-4">{(contactsQuery.data ?? []).map(message => <article key={message.id} className="rounded-2xl border border-black/10 bg-white p-5 md:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="font-semibold">{message.name}</span><span className="rounded-full bg-[#e9e5dc] px-2.5 py-1 text-xs uppercase tracking-[.1em]">{message.status}</span></div><a href={`mailto:${message.email}`} className="mt-1 block text-sm text-[#8d744e] underline underline-offset-4">{message.email}</a></div><select value={message.status} onChange={event => updateContactStatus.mutate({ id: message.id, status: event.target.value as "new" | "notified" | "read" | "resolved" })} className="rounded-full border border-black/15 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[.1em]"><option value="new">New</option><option value="notified">Notified</option><option value="read">Read</option><option value="resolved">Resolved</option></select></div><p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-[#5f5a51]">{message.message}</p><div className="mt-5 border-t border-black/10 pt-3 text-xs text-[#918a7f]">Received {new Date(message.createdAt).toLocaleString("en-GB")}</div></article>)}</div>}
                 </>
               ) : current.path === "/admin/customers" ? (
                 <>

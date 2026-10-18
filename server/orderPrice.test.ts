@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { CUSTOMER_COOKIE } from "./customerAuth";
 import type { TrpcContext } from "./_core/context";
+import { listProducts, updateOrderStatus } from "./db";
 
 type Captured = Array<{ name: string; value: string }>;
 
@@ -139,6 +140,28 @@ describe("orders.create price integrity", () => {
 });
 
 describe("orders.create inventory validation", () => {
+  it("reserves duplicate lines atomically and releases them on cancellation", async () => {
+    const caller = appRouter.createCaller(await signIn("Atomic Stock Tester", "01700000005"));
+    const before = (await listProducts()).find(product => product.id === 2)!;
+    const beforeStocks = JSON.parse(before.sizeStocks ?? "{}");
+    const result = await caller.orders.create({
+      items: [
+        { productId: "2", name: "Musc 11", size: "10ml", price: 1, quantity: 2 },
+        { productId: "2", name: "Musc 11", size: "10ml", price: 1, quantity: 3 },
+      ],
+      name: "Atomic Stock Tester",
+      phone: "01700000005",
+      address: "Dhaka",
+      zone: "inside",
+      paymentMethod: "cod",
+    });
+    const reserved = (await listProducts()).find(product => product.id === 2)!;
+    expect(JSON.parse(reserved.sizeStocks ?? "{}")["10ml"]).toBe(beforeStocks["10ml"] - 5);
+    await updateOrderStatus(result.orderId, "Cancelled");
+    const released = (await listProducts()).find(product => product.id === 2)!;
+    expect(JSON.parse(released.sizeStocks ?? "{}")["10ml"]).toBe(beforeStocks["10ml"]);
+  });
+
   it("rejects a quantity above the selected size stock", async () => {
     const caller = appRouter.createCaller(await signIn("Stock Tester", "01700000003"));
     await expect(

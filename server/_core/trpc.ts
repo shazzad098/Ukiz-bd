@@ -91,6 +91,16 @@ export const contactThrottle = t.middleware(async opts => {
   return next({ ctx });
 });
 
+const ANALYTICS_WINDOW_MS = 10 * 60_000;
+const ANALYTICS_MAX_ATTEMPTS = 120;
+export const analyticsThrottle = t.middleware(async opts => {
+  const { ctx, next } = opts;
+  if (!consumeAttempt(`analytics|${clientIp(ctx.req)}`, ANALYTICS_MAX_ATTEMPTS, ANALYTICS_WINDOW_MS)) {
+    throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Analytics rate limit exceeded." });
+  }
+  return next({ ctx });
+});
+
 // ---------------------------------------------------------------------------
 // Order spam protection. Checkout is authenticated, so the budget is keyed
 // per customer account (falling back to IP for safety) — one compromised or

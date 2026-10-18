@@ -21,6 +21,10 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error) {
+    window.dispatchEvent(new CustomEvent("ukiz:client-error", { detail: { message: error.message } }));
+  }
+
   render() {
     if (this.state.hasError) {
       return (
@@ -35,7 +39,7 @@ class ErrorBoundary extends Component<Props, State> {
 
             <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
               <pre className="text-sm text-muted-foreground whitespace-break-spaces">
-                {this.state.error?.stack}
+                {import.meta.env.DEV ? this.state.error?.stack : "Something went wrong on our side. The error has been recorded; please reload and try again."}
               </pre>
             </div>
 

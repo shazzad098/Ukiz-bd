@@ -13,7 +13,8 @@ import { csrfOriginGuard, parseAllowedOrigins } from "./originCheck";
 import { ipThrottle } from "./rateLimit";
 import { httpsRedirect, securityHeaders } from "./securityHeaders";
 import { hasAdminCredentials, validateAdminEnv } from "../adminAuth";
-import { checkDatabase } from "../db";
+import { checkDatabase, createPayment, findPaymentByProviderId, getOrderById, getOrderByPaymentReference, updateOrderPayment, updateOrderStatus, updatePayment } from "../db";
+import { executeBkashPayment, parseBkashCallback, queryBkashPayment, verifyBkashWebhook } from "../bkash";
 
 // Fail fast on missing secrets BEFORE accepting traffic. In production a
 // missing JWT_SECRET or admin credential pair means forgeable sessions or a
@@ -91,6 +92,60 @@ async function startServer() {
       ok: result.ok || !ENV.isProduction,
       database: result.ok ? "connected" : "unavailable",
     });
+  });
+  app.get("/api/payments/bkash/callback", async (req, res) => {
+    const callback = parseBkashCallback(req.query as Record<string, unknown>);
+    if (!callback.paymentId) return res.status(400).send("Missing bKash payment ID.");
+    const payment = await findPaymentByProviderId(callback.paymentId);
+    if (!payment) return res.status(404).send("Payment session not found.");
+    const order = await getOrderById(payment.orderId);
+    if (!order) return res.status(404).send("Order not found.");
+    if (callback.status !== "success") {
+      await updatePayment(payment.id, { status: callback.status === "cancel" ? "cancelled" : "failed" });
+      await updateOrderStatus(order.id, "Cancelled");
+      return res.redirect(303, `/order-success?payment=failed&order=${order.id}`);
+    }
+    try {
+      let result: Record<string, unknown>;
+      try {
+        result = await executeBkashPayment(callback.paymentId);
+      } catch {
+        result = await queryBkashPayment(callback.paymentId);
+      }
+      const amount = Number(result.amount);
+      if (result.transactionStatus !== "Completed" || !Number.isFinite(amount) || amount !== order.total || result.currency !== "BDT") {
+        throw new Error("bKash returned an invalid amount or transaction status.");
+      }
+      const trxId = typeof result.trxId === "string" ? result.trxId : null;
+      await updatePayment(payment.id, { status: "completed", providerTransactionId: trxId, rawPayload: JSON.stringify(result) });
+      await updateOrderPayment(order.id, { paymentStatus: "paid", paymentProvider: "bkash", paymentReference: order.paymentReference, paidAmount: order.total, status: "Processing" });
+      return res.redirect(303, `/order-success?payment=success&order=${order.id}`);
+    } catch (error) {
+      await updatePayment(payment.id, { status: "failed", rawPayload: JSON.stringify({ error: error instanceof Error ? error.message : "verification failed" }) });
+      await updateOrderStatus(order.id, "Cancelled");
+      return res.redirect(303, `/order-success?payment=failed&order=${order.id}`);
+    }
+  });
+  app.post("/api/payments/bkash/webhook", async (req, res) => {
+    const verified = await verifyBkashWebhook(req.body);
+    if (!verified) return res.status(401).send("Invalid webhook signature.");
+    if (verified.Type === "SubscriptionConfirmation" && typeof verified.SubscribeURL === "string") {
+      const subscriptionUrl = new URL(verified.SubscribeURL);
+      if (subscriptionUrl.protocol === "https:" && subscriptionUrl.hostname.endsWith(".amazonaws.com")) await fetch(subscriptionUrl);
+      return res.status(204).end();
+    }
+    const rawMessage = verified.Message;
+    const message = typeof rawMessage === "string" ? JSON.parse(rawMessage) as Record<string, unknown> : rawMessage as Record<string, unknown>;
+    if (message.transactionStatus !== "Completed") return res.status(204).end();
+    const invoice = typeof message.merchantInvoiceNumber === "string" ? message.merchantInvoiceNumber : "";
+    const order = invoice ? await getOrderByPaymentReference(invoice) : undefined;
+    if (!order || order.paymentStatus === "paid") return res.status(204).end();
+    const amount = Number(message.amount);
+    if (!Number.isFinite(amount) || amount !== order.total || message.currency !== "BDT") return res.status(422).send("Invalid payment amount.");
+    const trxId = typeof message.trxID === "string" ? message.trxID : null;
+    await createPayment({ orderId: order.id, provider: "bkash", providerTransactionId: trxId, amount: order.total, status: "completed", rawPayload: JSON.stringify(message) });
+    await updateOrderPayment(order.id, { paymentStatus: "paid", paymentProvider: "bkash", paymentReference: invoice, paidAmount: order.total, status: "Processing" });
+    return res.status(204).end();
   });
   registerStorageProxy(app);
   registerOAuthRoutes(app);
