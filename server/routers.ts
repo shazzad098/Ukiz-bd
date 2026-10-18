@@ -1,8 +1,9 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminSessionProcedure, couponThrottle, loginRateLimit, orderThrottle, publicProcedure, router } from "./_core/trpc";
+import { adminSessionProcedure, contactThrottle, couponThrottle, loginRateLimit, orderThrottle, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { notifyOwner } from "./_core/notification";
 import { clearAdminSession, isAdminAuthenticated, issueAdminSession, validateAdminCredentials } from "./adminAuth";
 import {
   clearCustomerSession,
@@ -63,12 +64,18 @@ function parsePriceRecord(raw: unknown): Record<string, number> {
   return out;
 }
 
+function parseStockRecord(raw: unknown): Record<string, number> {
+  return parsePriceRecord(raw);
+}
+
 export type OrderLineInput = { productId: string; size: string; quantity: number; premium?: string };
 
 /** Rebuilds cart lines with catalogue prices/names/images. Throws TRPCError BAD_REQUEST on unknown product/size. */
 export async function resolveOrderItems(items: OrderLineInput[]) {
   const catalogue = await listProducts();
   const byId = new Map(catalogue.map(p => [String(p.id), p]));
+  const requestedBySize = new Map<string, number>();
+  const requestedPremium = new Map<string, number>();
   return items.map(item => {
     const product = byId.get(item.productId);
     if (!product) {
@@ -83,6 +90,19 @@ export async function resolveOrderItems(items: OrderLineInput[]) {
         message: `"${product.name}" does not come in ${item.size}. Please refresh your bag and try again.`,
       });
     }
+    if (product.status === "Out of stock") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `"${product.name}" is currently out of stock.` });
+    }
+    const sizeKey = `${item.productId}:${item.size}`;
+    const requestedSize = (requestedBySize.get(sizeKey) ?? 0) + item.quantity;
+    requestedBySize.set(sizeKey, requestedSize);
+    const available = parseStockRecord(product.sizeStocks)[item.size];
+    if (available !== undefined && requestedSize > available) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Only ${available} of "${product.name}" (${item.size}) are available.`,
+      });
+    }
     const sizePrices = parsePriceRecord(product.sizePrices);
     const base = sizePrices[item.size] ?? product.price;
     let unitPrice = base;
@@ -91,6 +111,15 @@ export async function resolveOrderItems(items: OrderLineInput[]) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `The premium option is not available for "${product.name}".`,
+        });
+      }
+      const premiumKey = `${item.productId}:${product.premiumName}`;
+      const requestedPremiumCount = (requestedPremium.get(premiumKey) ?? 0) + item.quantity;
+      requestedPremium.set(premiumKey, requestedPremiumCount);
+      if (requestedPremiumCount > (product.premiumStock ?? 0)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Only ${product.premiumStock ?? 0} premium options are available for "${product.name}".`,
         });
       }
       unitPrice += product.premiumPrice;
@@ -408,6 +437,28 @@ export const appRouter = router({
   settings: router({
     public: publicProcedure.query(() => getStoreSettings()),
   }),
+  contact: router({
+    submit: publicProcedure
+      .use(contactThrottle)
+      .input(z.object({
+        name: z.string().trim().min(1, "Name is required").max(120),
+        email: z.string().trim().toLowerCase().email("Enter a valid email address").max(320),
+        message: z.string().trim().min(1, "Message is required").max(4000),
+      }))
+      .mutation(async ({ input }) => {
+        const delivered = await notifyOwner({
+          title: `New contact message from ${input.name}`,
+          content: `Email: ${input.email}\n\n${input.message}`,
+        });
+        if (!delivered) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "We could not deliver your message right now. Please email us directly.",
+          });
+        }
+        return { success: true } as const;
+      }),
+  }),
   customers: router({
     list: adminSessionProcedure.query(async () => {
       const rows = await listCustomers();
@@ -426,15 +477,15 @@ export const appRouter = router({
       .use(orderThrottle)
       .input(z.object({
         items: z.array(z.object({
-          productId: z.string(),
-          name: z.string(),
-          brand: z.string().optional(),
-          size: z.string(),
+          productId: z.string().trim().min(1).max(64),
+          name: z.string().max(120),
+          brand: z.string().max(120).optional(),
+          size: z.string().trim().min(1).max(32),
           price: z.number().int().min(0),
           quantity: z.number().int().min(1).max(99),
-          image: z.string().optional(),
-          premium: z.string().optional(),
-        })).min(1, "Your bag is empty."),
+          image: z.string().max(2048).optional(),
+          premium: z.string().trim().max(120).optional(),
+        })).min(1, "Your bag is empty.").max(50, "Your bag has too many line items."),
         name: z.string().trim().min(1, "Name is required").max(120),
         phone: z.string().trim().min(1, "Phone is required").max(32),
         address: z.string().trim().min(1, "Address is required").max(500, "Address is too long."),
@@ -500,4 +551,3 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
-

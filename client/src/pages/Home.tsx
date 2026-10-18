@@ -5,7 +5,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
-  ChevronDown,
   CircleUserRound,
   Heart,
   LockKeyhole,
@@ -45,6 +44,13 @@ const categories = [
 ];
 
 export const money = (value: number) => `৳${value.toLocaleString("en-BD")}`;
+
+function scrollToSection(id: string) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  const top = target.getBoundingClientRect().top + window.scrollY - 80;
+  window.scrollTo({ top, behavior: "smooth" });
+}
 
 function Logo({ light = false }: { light?: boolean }) {
   return <BrandLogo light={light} />;
@@ -176,15 +182,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (location === "/shop") document.getElementById("collection")?.scrollIntoView({ behavior: "smooth" });
-    if (location === "/finder") document.getElementById("finder")?.scrollIntoView({ behavior: "smooth" });
+    if (location === "/shop") scrollToSection("collection");
+    if (location === "/finder") scrollToSection("finder");
   }, [location]);
 
   const prevSearchRef = useRef("");
   useEffect(() => {
     if (search.trim() && !prevSearchRef.current.trim()) {
       setSearchOpen(false);
-      requestAnimationFrame(() => document.getElementById("collection")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      requestAnimationFrame(() => scrollToSection("collection"));
     }
     prevSearchRef.current = search;
   }, [search]);

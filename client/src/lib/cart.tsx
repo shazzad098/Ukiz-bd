@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { StoreProduct } from "@/lib/products";
-import { priceForSize, stockForSize, unitPrice } from "@/lib/products";
+import { stockForSize, unitPrice } from "@/lib/products";
 
 export type CartItem = StoreProduct & { size: string; quantity: number; premium?: boolean };
 

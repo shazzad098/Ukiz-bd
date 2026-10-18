@@ -76,6 +76,21 @@ export const couponThrottle = t.middleware(async opts => {
   return next({ ctx });
 });
 
+// Contact is intentionally generous for real shoppers, but bounded so the
+// notification service cannot be used as an unauthenticated spam relay.
+const CONTACT_WINDOW_MS = 15 * 60_000;
+const CONTACT_MAX_ATTEMPTS = 5;
+export const contactThrottle = t.middleware(async opts => {
+  const { ctx, next } = opts;
+  if (!consumeAttempt(`contact|${clientIp(ctx.req)}`, CONTACT_MAX_ATTEMPTS, CONTACT_WINDOW_MS)) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Too many messages. Please try again later.",
+    });
+  }
+  return next({ ctx });
+});
+
 // ---------------------------------------------------------------------------
 // Order spam protection. Checkout is authenticated, so the budget is keyed
 // per customer account (falling back to IP for safety) — one compromised or

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import StorefrontLayout from "@/components/StorefrontLayout";
 import { usePublicSettings } from "@/lib/settings";
 import { SOCIAL_LINKS } from "@/lib/social";
+import { trpc } from "@/lib/trpc";
 
 function TikTokIcon({ size = 18 }: { size?: number }) {
   return (
@@ -15,7 +16,20 @@ function TikTokIcon({ size = 18 }: { size?: number }) {
 
 export default function Contact() {
   const [sent, setSent] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
   const { supportEmail } = usePublicSettings();
+  const submitContact = trpc.contact.submit.useMutation({
+    onSuccess: () => {
+      setSent(true);
+      setName("");
+      setEmail("");
+      setMessage("");
+      toast.success("Your note has been sent.");
+    },
+    onError: (error) => toast.error(error.message),
+  });
   return (
     <StorefrontLayout eyebrow="Correspondence / 04" title="Let's talk scent.">
       <section className="container pb-24">
@@ -105,8 +119,7 @@ export default function Contact() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              setSent(true);
-              toast.success("Your note has been sent.");
+              submitContact.mutate({ name, email, message });
             }}
             className="rounded-[1.5rem] border border-black/10 bg-[#f8f6f0] p-7 md:p-10"
           >
@@ -116,6 +129,9 @@ export default function Contact() {
                 Your name
                 <input
                   required
+                  autoComplete="name"
+                  value={name}
+                  onChange={(event) => { setName(event.target.value); setSent(false); }}
                   className="border-b border-black/15 bg-transparent py-3 text-sm font-normal outline-none focus:border-[#a4824e]"
                 />
               </label>
@@ -124,6 +140,9 @@ export default function Contact() {
                 <input
                   required
                   type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => { setEmail(event.target.value); setSent(false); }}
                   className="border-b border-black/15 bg-transparent py-3 text-sm font-normal outline-none focus:border-[#a4824e]"
                 />
               </label>
@@ -132,12 +151,14 @@ export default function Contact() {
                 <textarea
                   required
                   rows={5}
+                  value={message}
+                  onChange={(event) => { setMessage(event.target.value); setSent(false); }}
                   className="resize-none border-b border-black/15 bg-transparent py-3 text-sm font-normal outline-none focus:border-[#a4824e]"
                   placeholder="Tell us what is on your mind..."
                 />
               </label>
-              <button className="primary-button dark mt-3 w-fit">
-                {sent ? "Sent — thank you" : "Send your note"} <ArrowRight size={14} />
+              <button disabled={submitContact.isPending} className="primary-button dark mt-3 w-fit disabled:cursor-not-allowed disabled:opacity-60">
+                {submitContact.isPending ? "Sending..." : sent ? "Sent — thank you" : "Send your note"} <ArrowRight size={14} />
               </button>
             </div>
           </form>

@@ -137,3 +137,33 @@ describe("orders.create price integrity", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("orders.create inventory validation", () => {
+  it("rejects a quantity above the selected size stock", async () => {
+    const caller = appRouter.createCaller(await signIn("Stock Tester", "01700000003"));
+    await expect(
+      caller.orders.create({
+        items: [{ productId: "1", name: "Santal 04", size: "10ml", price: 1, quantity: 21 }],
+        name: "Stock Tester",
+        phone: "01700000003",
+        address: "Dhaka",
+        zone: "inside",
+        paymentMethod: "cod",
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("rejects premium quantities above the available premium stock", async () => {
+    const caller = appRouter.createCaller(await signIn("Premium Stock Tester", "01700000004"));
+    await expect(
+      caller.orders.create({
+        items: [{ productId: "1", name: "Santal 04", size: "10ml", price: 1, quantity: 6, premium: "Crystal flacon" }],
+        name: "Premium Stock Tester",
+        phone: "01700000004",
+        address: "Dhaka",
+        zone: "inside",
+        paymentMethod: "cod",
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});

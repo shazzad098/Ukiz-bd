@@ -22,6 +22,9 @@ import { checkDatabase } from "../db";
 function validateRuntimeEnv() {
   getCookieSecret(); // throws in production when JWT_SECRET is unset
   if (ENV.isProduction) {
+    if (!process.env.DATABASE_URL?.trim()) {
+      throw new Error("[Database] DATABASE_URL is required in production. Refusing to start with in-memory data.");
+    }
     validateAdminEnv(); // throws when ADMIN_LOGIN_ID / password hash are unset
   } else if (!hasAdminCredentials()) {
     console.warn("[Admin] ADMIN_LOGIN_ID / ADMIN_PASSWORD_HASH not set — admin login is disabled in development.");
@@ -50,16 +53,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   validateRuntimeEnv();
 
-  // Database health: log-only, never blocks boot. When Supabase is
-  // unreachable the app keeps serving on in-memory seed data — this line
-  // makes that visible instead of silent.
-  checkDatabase().then(result => {
-    if (result.ok) {
-      console.log("[Database] Connected — serving live Supabase data.");
-    } else {
-      console.warn(`[Database] ${result.error} Serving in-memory seed data instead.`);
-    }
-  });
+  const database = await checkDatabase();
+  if (ENV.isProduction && !database.ok) {
+    throw new Error(`[Database] Production startup blocked: ${database.error ?? "database is unavailable"}`);
+  }
+  if (database.ok) console.log("[Database] Connected — serving live Supabase data.");
+  else console.warn(`[Database] ${database.error} Serving in-memory seed data in development.`);
 
   const app = express();
   const server = createServer(app);
@@ -86,6 +85,13 @@ async function startServer() {
   app.use("/api/trpc", express.json({ limit: "10mb" }));
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "100kb", extended: true }));
+  app.get("/healthz", async (_req, res) => {
+    const result = await checkDatabase();
+    res.status(result.ok || !ENV.isProduction ? 200 : 503).json({
+      ok: result.ok || !ENV.isProduction,
+      database: result.ok ? "connected" : "unavailable",
+    });
+  });
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   // tRPC API
@@ -103,8 +109,11 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const preferredPort = Number.parseInt(process.env.PORT || "3000", 10);
+  if (!Number.isInteger(preferredPort) || preferredPort < 1024 || preferredPort > 65535) {
+    throw new Error("[Server] PORT must be an integer between 1024 and 65535.");
+  }
+  const port = ENV.isProduction ? preferredPort : await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
@@ -115,4 +124,7 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

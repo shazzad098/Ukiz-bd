@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import StorefrontLayout from "@/components/StorefrontLayout";
 import { useProducts } from "@/lib/products";
 import { useCustomer } from "@/lib/customer";
