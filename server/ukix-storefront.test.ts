@@ -1,13 +1,12 @@
+process.env.DATABASE_URL = "";
+
 import { describe, expect, it } from "vitest";
-import { money, products } from "../client/src/pages/Home";
+import { money } from "../client/src/pages/Home";
+import { listProducts } from "./db";
 
 describe("UKIX-BD storefront catalogue", () => {
-  it("ships a curated catalogue with unique product ids and selectable sizes", () => {
-    const ids = products.map((product) => product.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(products.length).toBeGreaterThanOrEqual(6);
-    expect(products.every((product) => product.sizes.length > 0)).toBe(true);
-    expect(products.every((product) => product.price > 0)).toBe(true);
+  it("does not expose a fake catalogue when no database products have been configured", async () => {
+    expect(await listProducts()).toEqual([]);
   });
 
   it("formats prices in Bangladesh taka", () => {

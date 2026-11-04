@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { consumeAttempt, ipThrottle, resetAttempts } from "./_core/rateLimit";
 import { csrfOriginGuard, isAllowedOrigin, parseAllowedOrigins } from "./_core/originCheck";
-import { httpsRedirect, securityHeaders } from "./_core/securityHeaders";
+import { httpsRedirect, productionContentSecurityPolicy, securityHeaders } from "./_core/securityHeaders";
 import { sniffImageKind } from "./supabaseStorage";
 import { validateAdminEnv } from "./adminAuth";
 import { appRouter } from "./routers";
@@ -266,6 +266,24 @@ describe("security headers + global throttle", () => {
     expect(res.headers["X-Frame-Options"]).toBe("SAMEORIGIN");
     expect(res.headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(res.headers["Cross-Origin-Opener-Policy"]).toBe("same-origin");
+  });
+
+  it("allows the configured Supabase Auth origin in production connect-src", () => {
+    const savedNodeEnv = process.env.NODE_ENV;
+    const savedSupabaseUrl = process.env.SUPABASE_URL;
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.SUPABASE_URL = "https://project-ref.supabase.co";
+      const res = mockRes();
+      securityHeaders()({} as never, res as never, () => undefined);
+      expect(res.headers["Content-Security-Policy"]).toContain("connect-src 'self' https://project-ref.supabase.co");
+      expect(productionContentSecurityPolicy("http://untrusted.example")).toContain("connect-src 'self'");
+      expect(productionContentSecurityPolicy("http://untrusted.example")).not.toContain("untrusted.example");
+    } finally {
+      process.env.NODE_ENV = savedNodeEnv;
+      if (savedSupabaseUrl === undefined) delete process.env.SUPABASE_URL;
+      else process.env.SUPABASE_URL = savedSupabaseUrl;
+    }
   });
 
   it("global IP throttle returns 429 past the budget", () => {

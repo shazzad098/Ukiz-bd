@@ -14,13 +14,14 @@ import {
 } from "./customerAuth";
 import { z } from "zod";
 
-import { createCustomer, getCustomerByEmail, getCustomerById, listCustomers, touchCustomerSignin } from "./db";
+import { createCustomer, getCustomerByEmail, getCustomerById, getCustomerBySupabaseUserId, linkCustomerSupabaseUserId, listCustomers, touchCustomerSignin } from "./db";
 import { checkCoupon, checkDatabase, createAnalyticsEvent, createContact, createCoupon, createOrderWithInventory, createPayment, deleteCoupon, getAnalyticsSummary, getStoreSettings, listContacts, listCoupons, listOrders, listOrdersByCustomer, parseOrderItems, setStoreSetting, updateContactStatus, updateCoupon, updateOrderPayment, updateOrderStatus } from "./db";
 import { deliveryFeeFor } from "../shared/order";
 import { ORDER_STATUSES } from "../drizzle/schema";
 import { uploadProductImage } from "./supabaseStorage";
 import { listProducts, createProduct, deleteProduct, updateProduct } from "./db";
 import { createBkashPayment, isBkashConfigured } from "./bkash";
+import { SupabaseAuthNotConfiguredError, SupabaseAuthRejectedError, verifyGoogleAccessToken } from "./supabaseAuth";
 
 // ---------------------------------------------------------------------------
 // Order pricing integrity.
@@ -366,7 +367,7 @@ export const appRouter = router({
         const result = await checkDatabase();
         return {
           connected: result.ok,
-          mode: result.ok ? ("supabase" as const) : ("in-memory" as const),
+          mode: result.ok ? ("supabase" as const) : ("disconnected" as const),
           message: result.ok
             ? "Connected — the panel shows live Supabase data."
             : (result.error ?? "Database unreachable."),
@@ -420,8 +421,75 @@ export const appRouter = router({
       .input(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         const row = await getCustomerByEmail(input.email);
-        if (!row || !verifyPassword(input.password, row.passwordHash)) {
+        if (!row || !row.passwordHash) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "This account uses Google sign-in. Continue with Google to access it." });
+        }
+        if (!verifyPassword(input.password, row.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password." });
+        }
+        await touchCustomerSignin(row.id);
+        issueCustomerSession(ctx.res, ctx.req, row.id);
+        return { success: true, customer: { id: row.id, name: row.name, email: row.email } };
+      }),
+    googleLogin: publicProcedure
+      .use(loginRateLimit)
+      .input(z.object({ accessToken: z.string().min(20).max(8192) }))
+      .mutation(async ({ input, ctx }) => {
+        let identity: Awaited<ReturnType<typeof verifyGoogleAccessToken>>;
+        try {
+          identity = await verifyGoogleAccessToken(input.accessToken);
+        } catch (error) {
+          if (error instanceof SupabaseAuthNotConfiguredError) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Google sign-in is not configured. Set the Supabase Auth keys and enable Google in Supabase." });
+          }
+          if (error instanceof SupabaseAuthRejectedError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "Google could not verify this account. Use a verified Google email and try again." });
+          }
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Google sign-in is temporarily unavailable." });
+        }
+
+        const sessionId = getCustomerSessionId(ctx.req);
+        const signedInCustomer = sessionId ? await getCustomerById(sessionId) : undefined;
+        let row = await getCustomerBySupabaseUserId(identity.subject);
+        if (row && signedInCustomer && signedInCustomer.id !== row.id) {
+          throw new TRPCError({ code: "CONFLICT", message: "You are signed in to another customer account. Sign out first, then continue with Google." });
+        }
+        if (!row) {
+          const existingEmail = await getCustomerByEmail(identity.email);
+          if (existingEmail) {
+            if (existingEmail.supabaseUserId && existingEmail.supabaseUserId !== identity.subject) {
+              throw new TRPCError({ code: "CONFLICT", message: "This customer is linked to a different Google identity." });
+            }
+            if (signedInCustomer?.id !== existingEmail.id) {
+              throw new TRPCError({ code: "CONFLICT", message: "This email already has an account. Sign in with your password first, then connect Google from your account page." });
+            }
+            try {
+              await linkCustomerSupabaseUserId(existingEmail.id, identity.subject);
+              row = await getCustomerById(existingEmail.id);
+            } catch {
+              throw new TRPCError({ code: "CONFLICT", message: "Google could not be linked to this customer account." });
+            }
+            if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The customer account could not be reloaded." });
+          } else {
+            if (signedInCustomer && signedInCustomer.email.toLowerCase() !== identity.email) {
+              throw new TRPCError({ code: "CONFLICT", message: "Sign out before using a different Google account." });
+            }
+            const displayName = identity.name?.slice(0, 120) || identity.email.split("@")[0]?.slice(0, 120) || "Customer";
+            try {
+              row = await createCustomer({
+                name: displayName,
+                email: identity.email,
+                passwordHash: null,
+                supabaseUserId: identity.subject,
+                phone: null,
+                lastSignedIn: new Date(),
+              });
+            } catch {
+              // Concurrent first sign-ins can race on the unique provider subject.
+              row = await getCustomerBySupabaseUserId(identity.subject);
+              if (!row) throw new TRPCError({ code: "CONFLICT", message: "This Google account could not be linked to a customer record." });
+            }
+          }
         }
         await touchCustomerSignin(row.id);
         issueCustomerSession(ctx.res, ctx.req, row.id);
@@ -432,7 +500,7 @@ export const appRouter = router({
       if (!id) return null;
       const row = await getCustomerById(id);
       if (!row) return null;
-      return { id: row.id, name: row.name, email: row.email, phone: row.phone, createdAt: row.createdAt };
+      return { id: row.id, name: row.name, email: row.email, phone: row.phone, createdAt: row.createdAt, googleLinked: Boolean(row.supabaseUserId) };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       clearCustomerSession(ctx.res, ctx.req);
@@ -440,6 +508,12 @@ export const appRouter = router({
     }),
   }),
   coupons: router({
+    activeDeals: publicProcedure.query(async () => {
+      const now = Date.now();
+      return (await listCoupons())
+        .filter(coupon => coupon.active === "yes" && (!coupon.expiresAt || new Date(coupon.expiresAt).getTime() >= now))
+        .map(({ code, type, value, minSubtotal, expiresAt }) => ({ code, type, value, minSubtotal, expiresAt }));
+    }),
     validate: publicProcedure
       .use(couponThrottle)
       .input(z.object({

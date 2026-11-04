@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { ArrowRight, LockKeyhole, Mail, ShieldCheck, Sparkles, User } from "lucide-react";
 import { Link } from "wouter";
 import StorefrontLayout from "@/components/StorefrontLayout";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 import { useCustomer } from "@/lib/customer";
 
 function Shell({ eyebrow, title, copy, children }: { eyebrow: string; title: string; copy: string; children: React.ReactNode }) {
@@ -60,6 +61,10 @@ export function SignIn() {
           {loginPending ? "Signing in..." : "Sign in"} <ArrowRight size={14} />
         </button>
       </form>
+      <div className="mt-7">
+        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.14em] text-[#918a7f]"><span className="h-px flex-1 bg-black/10" /><span>or continue with</span><span className="h-px flex-1 bg-black/10" /></div>
+        <GoogleSignInButton />
+      </div>
       <p className="mt-6 text-center text-sm text-[#777269]">
         New to UKIX-BD? <Link href="/signup" className="font-semibold text-[#151515] underline underline-offset-4">Create an account</Link>
       </p>
@@ -111,6 +116,10 @@ export function SignUp() {
           {signupPending ? "Creating account..." : "Create account"} <ArrowRight size={14} />
         </button>
       </form>
+      <div className="mt-7">
+        <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.14em] text-[#918a7f]"><span className="h-px flex-1 bg-black/10" /><span>or continue with</span><span className="h-px flex-1 bg-black/10" /></div>
+        <GoogleSignInButton />
+      </div>
       <p className="mt-6 text-center text-sm text-[#777269]">
         Already have an account? <Link href="/signin" className="font-semibold text-[#151515] underline underline-offset-4">Sign in</Link>
       </p>

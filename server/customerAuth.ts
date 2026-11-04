@@ -30,7 +30,8 @@ export function hashPassword(password: string): string {
   return `${salt}:${hash}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export function verifyPassword(password: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
   const [salt, hash] = stored.split(":");
   if (!salt || !hash) return false;
   let derived: string;

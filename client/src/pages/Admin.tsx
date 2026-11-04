@@ -207,6 +207,7 @@ function CouponsSection() {
   const [expiresAt, setExpiresAt] = useState("");
   const refresh = async () => {
     await utils.admin.coupons.list.invalidate();
+    await utils.coupons.activeDeals.invalidate();
   };
   const create = trpc.admin.coupons.create.useMutation({
     onSuccess: async () => {
@@ -597,7 +598,7 @@ function SettingsSection() {
                 </span>
               ) : (
                 <span className="rounded-full bg-[#f2ddcf] px-2.5 py-1 text-xs uppercase tracking-[.08em] text-[#9c614b]">
-                  ● In-memory fallback
+                  ● Supabase disconnected — writes disabled
                 </span>
               )}
             </div>
@@ -884,7 +885,7 @@ function AdminDashboard() {
     premiumName: "",
     premiumPrice: 0,
     premiumStock: 0,
-    sizeRows: [{ size: "50ml", price: 0, stock: 0 }] as SizeRow[],
+    sizeRows: [{ size: "", price: 0, stock: 0 }] as SizeRow[],
   });
   const [newProduct, setNewProduct] = useState({
     name: "",
@@ -892,7 +893,7 @@ function AdminDashboard() {
     family: "",
     notes: "",
     price: 0,
-    sizes: '["50ml"]',
+    sizes: "[]",
     image: "",
     badge: "",
     tone: "#d7c1a0",
@@ -904,7 +905,7 @@ function AdminDashboard() {
     premiumStock: 0,
   });
   const [sizeRows, setSizeRows] = useState<SizeRow[]>([
-    { size: "50ml", price: 0, stock: 0 },
+    { size: "", price: 0, stock: 0 },
   ]);
   const auth = trpc.admin.me.useQuery(undefined, {
     refetchOnMount: "always",
@@ -946,7 +947,7 @@ function AdminDashboard() {
         family: "",
         notes: "",
         price: 0,
-        sizes: '["50ml"]',
+        sizes: "[]",
         image: "",
         badge: "",
         tone: "#d7c1a0",
@@ -957,10 +958,10 @@ function AdminDashboard() {
         premiumPrice: 0,
         premiumStock: 0,
       });
-      setSizeRows([{ size: "50ml", price: 0, stock: 0 }]);
+      setSizeRows([{ size: "", price: 0, stock: 0 }]);
       await invalidateAll();
     },
-    onError: () => toast.error("Could not add product."),
+    onError: error => toast.error(error.message || "Could not add product."),
   });
 
   const updateProduct = trpc.products.update.useMutation({
@@ -969,7 +970,7 @@ function AdminDashboard() {
       setEditingId(null);
       await invalidateAll();
     },
-    onError: () => toast.error("Could not update product."),
+    onError: error => toast.error(error.message || "Could not update product."),
   });
 
   const deleteProduct = trpc.products.delete.useMutation({
@@ -977,7 +978,7 @@ function AdminDashboard() {
       toast.success("Product deleted — removed from user pages too.");
       await invalidateAll();
     },
-    onError: () => toast.error("Could not delete product."),
+    onError: error => toast.error(error.message || "Could not delete product."),
   });
 
   const startEdit = (row: (typeof products)[number]) => {
@@ -1008,10 +1009,7 @@ function AdminDashboard() {
       premiumName: row.premiumName ?? "",
       premiumPrice: row.premiumPrice ?? 0,
       premiumStock: row.premiumStock ?? 0,
-      sizeRows:
-        rows.length > 0
-          ? rows
-          : [{ size: "50ml", price: row.price, stock: row.stock ?? 0 }],
+        sizeRows: rows.length > 0 ? rows : [{ size: "", price: 0, stock: 0 }],
     });
   };
 
@@ -1024,6 +1022,10 @@ function AdminDashboard() {
     }
     if (!brand) {
       toast.error("Brand is required.");
+      return;
+    }
+    if (!sizeRows.some(row => row.size.trim() && row.price > 0)) {
+      toast.error("Add at least one size with a price before saving this product.");
       return;
     }
     const payload = buildSizePayload(sizeRows);
@@ -1061,6 +1063,10 @@ function AdminDashboard() {
     }
     if (!brand) {
       toast.error("Brand is required.");
+      return;
+    }
+    if (!editForm.sizeRows.some(row => row.size.trim() && row.price > 0)) {
+      toast.error("Add at least one size with a price before saving this product.");
       return;
     }
     const payload = buildSizePayload(editForm.sizeRows);

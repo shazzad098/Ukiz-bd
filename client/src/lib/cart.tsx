@@ -69,7 +69,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [items]);
 
   const addItem = useCallback((product: StoreProduct, size?: string, quantity?: number, withPremium?: boolean) => {
-    const chosen = size ?? product.sizes[0] ?? "50ml";
+    const chosen = size ?? product.sizes[0];
+    if (!chosen || !product.sizes.includes(chosen)) return false;
     const premium = withPremium === true && !!product.premiumName && (product.premiumPrice ?? 0) > 0;
     const desired = Math.max(1, Math.floor(quantity ?? 1));
     const sizeStock = stockForSize(product, chosen);

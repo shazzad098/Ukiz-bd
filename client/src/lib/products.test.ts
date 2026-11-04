@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stockForSize } from "./products";
+import { buildSizePayload, parseSizes, stockForSize } from "./products";
 
 describe("stockForSize", () => {
   it("uses size-specific stock when present, including a real zero", () => {
@@ -15,5 +15,17 @@ describe("stockForSize", () => {
 
   it("never reports a negative quantity", () => {
     expect(stockForSize({ sizeStocks: { "10ml": -2 }, stock: 5 }, "10ml")).toBe(0);
+  });
+});
+
+describe("catalogue size data", () => {
+  it("keeps missing size data empty instead of inventing 50ml", () => {
+    expect(parseSizes(null)).toEqual([]);
+    expect(parseSizes("[]")).toEqual([]);
+  });
+
+  it("rejects saving a product without any real size option", () => {
+    expect(() => buildSizePayload([])).toThrow("Add at least one product size");
+    expect(() => buildSizePayload([{ size: "  ", price: 0, stock: 0 }])).toThrow("Add at least one product size");
   });
 });

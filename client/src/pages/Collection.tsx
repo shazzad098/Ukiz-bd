@@ -6,10 +6,9 @@ import { money } from "./Home";
 import { fromPrice, maxPrice, useProducts, type StoreProduct } from "@/lib/products";
 import { imageSrcSet, imageUrl } from "@/lib/images";
 
-type SortKey = "featured" | "price-asc" | "price-desc" | "newest" | "oldest";
+type SortKey = "price-asc" | "price-desc" | "newest" | "oldest";
 
 const SORT_LABELS: Record<SortKey, string> = {
-  featured: "Sort: Featured",
   "price-asc": "Price: Low to high",
   "price-desc": "Price: High to low",
   newest: "Newest first",
@@ -55,7 +54,7 @@ function FilterGroup({ title, options, selected, onToggle }: { title: string; op
   );
 }
 
-export default function Shop() {
+export default function Collection() {
   const { products, isLoading, isError, refetch } = useProducts();
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("search") ?? "");
   const [brands, setBrands] = useState<Set<string>>(new Set());
@@ -64,7 +63,7 @@ export default function Shop() {
   const [types, setTypes] = useState<Set<string>>(new Set());
   const [minInput, setMinInput] = useState("");
   const [maxInput, setMaxInput] = useState("");
-  const [sort, setSort] = useState<SortKey>("featured");
+  const [sort, setSort] = useState<SortKey>("newest");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const brandOptions = useMemo(() => uniqueSorted(products.map((p) => p.brand)), [products]);
@@ -98,7 +97,7 @@ export default function Shop() {
     setMinInput("");
     setMaxInput("");
     setQuery("");
-    setSort("featured");
+    setSort("newest");
   };
 
   const visible = useMemo(() => {
@@ -189,7 +188,7 @@ export default function Shop() {
       <Link href={`/product/${product.id}`} className="block">
         <div className="image-sheen relative aspect-[.86] overflow-hidden rounded-[1.2rem]" style={{ backgroundColor: product.tone }}>
           <img src={imageUrl(product.image, 900)} srcSet={imageSrcSet(product.image)} sizes="(min-width: 1024px) 28vw, (min-width: 768px) 45vw, 48vw" alt={`${product.brand} ${product.name}`} className="product-image h-full w-full object-cover" loading="lazy" decoding="async" />
-          <span className="absolute left-3 top-3 rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-xs font-bold uppercase tracking-[.12em]">{product.badge ?? "Curated"}</span>
+          {product.badge && <span className="absolute left-3 top-3 rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-xs font-bold uppercase tracking-[.12em]">{product.badge}</span>}
           <span className="absolute inset-x-3 bottom-3 rounded-full bg-[#151515]/90 py-3 text-center text-xs font-bold uppercase tracking-[.12em] text-white opacity-0 transition-opacity group-hover:opacity-100">View composition</span>
         </div>
         <div className="px-1 pt-4">

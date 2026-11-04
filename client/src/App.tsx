@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Route, Switch, useLocation } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AnalyticsTracker from "./components/AnalyticsTracker";
 import SeoController from "./components/Seo";
@@ -11,14 +11,15 @@ import { WishlistProvider } from "@/lib/wishlist";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
 
-// Route-level code splitting: Shop/Admin/Checkout chunks load on demand,
+// Route-level code splitting: Collection/Admin/Checkout chunks load on demand,
 // keeping the first paint (~Home) small.
-const Shop = lazy(() => import("./pages/Shop"));
+const Collection = lazy(() => import("./pages/Collection"));
 const ScentIndex = lazy(() => import("./pages/ScentIndex"));
 const About = lazy(() => import("./pages/About"));
 const Contact = lazy(() => import("./pages/Contact"));
 const ProductDetails = lazy(() => import("./pages/ProductDetails"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 const AuthPagesSignIn = lazy(() => import("./pages/AuthPages").then(m => ({ default: m.SignIn })));
 const AuthPagesSignUp = lazy(() => import("./pages/AuthPages").then(m => ({ default: m.SignUp })));
 const CommerceAccount = lazy(() => import("./pages/CommercePages").then(m => ({ default: m.Account })));
@@ -46,10 +47,12 @@ function Router() {
     <Suspense fallback={<PageFallback />}>
     <Switch>
     <Route path="/" component={Home} />
-    <Route path="/shop" component={Shop} />
+    <Route path="/collection" component={Collection} />
+    <Route path="/shop">{() => <Redirect to={`/collection${window.location.search}`} replace />}</Route>
     <Route path="/finder" component={ScentIndex} />
     <Route path="/signin" component={AuthPagesSignIn} />
     <Route path="/signup" component={AuthPagesSignUp} />
+    <Route path="/auth/callback" component={AuthCallback} />
     <Route path="/about" component={About} />
     <Route path="/contact" component={Contact} />
     <Route path="/product/:id" component={ProductDetails} />

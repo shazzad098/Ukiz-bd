@@ -158,7 +158,7 @@ async function startServer() {
     try {
       const products = await listProducts();
       const origin = canonicalOrigin();
-      const routes = ["/", "/shop", "/finder", "/about", "/contact", "/refund-policy"];
+      const routes = ["/", "/collection", "/finder", "/about", "/contact", "/refund-policy"];
       const productRoutes = products.map(product => `/product/${encodeURIComponent(String(product.id))}`);
       const entries = [...routes, ...productRoutes].map(route => {
         const location = `${origin}${route}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

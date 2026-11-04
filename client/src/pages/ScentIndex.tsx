@@ -29,8 +29,8 @@ export default function ScentIndex() {
   const restart = () => { setStep(0); setAnswers([]); };
   const tryRecommendation = () => {
     if (!recommendation) return;
-    const size = recommendation.sizes[0] ?? "50ml";
-    if (stockForSize(recommendation, size) === 0 || !addItem(recommendation, size)) {
+    const size = recommendation.sizes[0];
+    if (!size || stockForSize(recommendation, size) === 0 || !addItem(recommendation, size)) {
       toast.error("This fragrance is currently out of stock.");
       return;
     }

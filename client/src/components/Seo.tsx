@@ -47,12 +47,12 @@ export function usePageSeo(config: SeoConfig) {
 
 function configFor(pathname: string): SeoConfig {
   if (pathname === "/") return { title: "UKIZ-BD — Try before you commit.", description: "Authentic Middle-Eastern, designer and niche perfume decants in Bangladesh.", canonicalPath: "/" };
-  if (pathname === "/shop") return { title: "Shop authentic perfume decants — UKIZ-BD", description: "Explore authentic designer, niche and Middle-Eastern fragrance decants with nationwide delivery in Bangladesh.", canonicalPath: "/shop" };
+  if (pathname === "/collection") return { title: "Fragrance collection — UKIZ-BD", description: "Explore the live UKIZ-BD fragrance collection, updated from the store catalogue.", canonicalPath: "/collection" };
   if (pathname === "/finder") return { title: "Find your scent — UKIZ-BD Scent Index", description: "Use the UKIZ-BD scent index to discover a fragrance for your mood, moment and intensity.", canonicalPath: "/finder" };
   if (pathname === "/about") return { title: "Our story — UKIZ-BD", description: "Meet UKIZ-BD, a considered fragrance decant edit built for trying before committing.", canonicalPath: "/about" };
   if (pathname === "/contact") return { title: "Contact UKIZ-BD", description: "Talk to UKIZ-BD about fragrance recommendations, orders and delivery across Bangladesh.", canonicalPath: "/contact" };
   if (pathname === "/refund-policy" || pathname === "/returns") return { title: "Refund & exchange policy — UKIZ-BD", description: "Read the UKIZ-BD refund, exchange and delivery policy before placing an order.", canonicalPath: "/refund-policy" };
-  const privateRoute = /^\/(signin|signup|account|wishlist|cart|checkout|order-success|admin)(\/|$)/.test(pathname);
+  const privateRoute = /^\/(auth\/callback|signin|signup|account|wishlist|cart|checkout|order-success|admin)(\/|$)/.test(pathname);
   return { title: "UKIZ-BD — Authentic fragrance decants", description: "Authentic fragrance decants in Bangladesh.", canonicalPath: pathname, noIndex: privateRoute };
 }
 

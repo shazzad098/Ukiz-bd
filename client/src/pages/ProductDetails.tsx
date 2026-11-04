@@ -18,12 +18,12 @@ export default function ProductDetails() {
   const { has: isSaved, toggle: toggleSaved } = useWishlist();
   const { products, isLoading, isError, refetch } = useProducts();
   const product = products.find((item) => item.id === id);
-  const [size, setSize] = useState(product?.sizes[0] ?? "50ml");
+  const [size, setSize] = useState(product?.sizes[0] ?? "");
   const [quantity, setQuantity] = useState(1);
   const [premium, setPremium] = useState(false);
-  const firstSize = product?.sizes[0] ?? "50ml";
-  const selectedStock = product ? stockForSize(product, size) : undefined;
-  const maxQuantity = product
+  const firstSize = product?.sizes[0] ?? "";
+  const selectedStock = product && product.sizes.includes(size) ? stockForSize(product, size) : 0;
+  const maxQuantity = product && product.sizes.includes(size)
     ? premium
       ? Math.min(selectedStock ?? Number.POSITIVE_INFINITY, product.premiumStock ?? 0)
       : selectedStock ?? Number.POSITIVE_INFINITY
@@ -78,9 +78,7 @@ export default function ProductDetails() {
               fetchPriority="high"
               decoding="async"
             />
-            <figcaption className="absolute bottom-4 left-4 rounded-full border border-white/40 bg-[#151515]/70 px-4 py-2 text-xs font-semibold uppercase tracking-[.12em] text-white backdrop-blur">
-              {product.badge ?? "The considered edit"}
-            </figcaption>
+            {product.badge && <figcaption className="absolute bottom-4 left-4 rounded-full border border-white/40 bg-[#151515]/70 px-4 py-2 text-xs font-semibold uppercase tracking-[.12em] text-white backdrop-blur">{product.badge}</figcaption>}
           </figure>
 
           <div className="md:pl-6">
@@ -108,10 +106,10 @@ export default function ProductDetails() {
             <div className="my-8 border-y border-black/10 py-6">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs font-bold uppercase tracking-[.13em]">
                 <span>Choose your size</span>
-                <span className="text-[#6e5839]">{money(unitPrice(product, size, premium))}</span>
+                <span className="text-[#6e5839]">{product.sizes.length > 0 ? money(unitPrice(product, size, premium)) : "Unavailable"}</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {product.sizes.map((item) => {
+                {product.sizes.length === 0 ? <p className="text-sm text-[#777269]">No purchasable size has been configured yet.</p> : product.sizes.map((item) => {
                   const stock = stockForSize(product, item);
                   const out = stock === 0;
                   return (
@@ -158,10 +156,10 @@ export default function ProductDetails() {
 
         <div className="mt-24 grid gap-10 border-t border-black/10 pt-10 md:grid-cols-[.6fr_1.4fr]">
           <div className="eyebrow">The scent profile</div>
-          <div className="grid gap-7 sm:grid-cols-3">
+            <div className="grid gap-7 sm:grid-cols-3">
             <div><div className="text-xs uppercase tracking-[.12em] text-[#806b4b]">Family</div><div className="serif mt-2 text-2xl">{product.family}</div></div>
             <div><div className="text-xs uppercase tracking-[.12em] text-[#806b4b]">Notes</div><div className="serif mt-2 text-2xl">{product.notes}</div></div>
-            <div><div className="text-xs uppercase tracking-[.12em] text-[#806b4b]">Wear it</div><div className="serif mt-2 text-2xl">{product.vibe ?? "Close, then closer"}</div></div>
+              {product.vibe && <div><div className="text-xs uppercase tracking-[.12em] text-[#806b4b]">Wear it</div><div className="serif mt-2 text-2xl">{product.vibe}</div></div>}
           </div>
         </div>
       </section>

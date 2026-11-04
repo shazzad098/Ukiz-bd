@@ -21,7 +21,7 @@ export default function RefundPolicy() {
               you order.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/shop" className="primary-button">
+              <Link href="/collection" className="primary-button">
                 Shop the edit <ArrowRight size={14} />
               </Link>
               <Link href="/contact" className="secondary-button border-white/20 text-white hover:border-white">

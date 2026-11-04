@@ -35,6 +35,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://ukiz_ci:ukiz_ci@127.0.0.1:5432/ukiz_ci
         run: pnpm db:push
+      - name: Verify case-insensitive customer email lookup
+        env:
+          DATABASE_URL: postgresql://ukiz_ci:ukiz_ci@127.0.0.1:5432/ukiz_ci
+        run: pnpm exec tsx scripts/customer-email-db-smoke.ts
       - run: pnpm build
       - name: Smoke-test the built application
         run: scripts/runtime-smoke.sh

@@ -15,7 +15,7 @@ export default function NotFound() {
             <h2 className="serif text-3xl leading-tight md:text-4xl">The page you’re looking for has moved on.</h2>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70">The link may be old, or the composition may no longer be in our edit. Let’s find you something that is.</p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/shop" className="primary-button"><Search size={14} /> Explore the edit</Link>
+              <Link href="/collection" className="primary-button"><Search size={14} /> Explore the edit</Link>
               <Link href="/" className="secondary-button border-white/25 text-white hover:border-white"><ArrowLeft size={14} /> Back home</Link>
             </div>
             <Link href="/contact" className="mt-7 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[.12em] text-[#d2b77e]">Need a hand? Contact us <ArrowRight size={13} /></Link>

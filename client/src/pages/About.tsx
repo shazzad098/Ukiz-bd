@@ -103,7 +103,7 @@ export default function About() {
                 “Find the scent that feels like it has always belonged to you.”
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <Link href="/shop" className="primary-button dark">
+                <Link href="/collection" className="primary-button dark">
                   Shop decants <ArrowRight size={14} />
                 </Link>
                 <Link

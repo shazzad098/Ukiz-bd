@@ -5,13 +5,33 @@
 // this test can never touch a real database.
 process.env.DATABASE_URL = "";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { CUSTOMER_COOKIE } from "./customerAuth";
 import type { TrpcContext } from "./_core/context";
-import { listProducts, updateOrderStatus } from "./db";
+import { createProduct, listProducts, updateOrderStatus } from "./db";
 
 type Captured = Array<{ name: string; value: string }>;
+
+beforeAll(async () => {
+  await createProduct({
+    name: "Fixture Scent A", brand: "Fixture House A", family: "Woody / Test", notes: "Fixture note A",
+    price: 1850, sizes: JSON.stringify(["10ml", "30ml"]),
+    sizePrices: JSON.stringify({ "10ml": 1850, "30ml": 3200 }),
+    sizeStocks: JSON.stringify({ "10ml": 20, "30ml": 12 }), audience: "Unisex", vibe: "Woody", type: "EDP",
+    premiumName: "Fixture Bottle", premiumPrice: 1500, premiumStock: 6,
+    image: "https://images.example.test/fixture-a.webp", badge: null, tone: "#c7b08a", stock: 42, status: "In stock",
+  });
+  await createProduct({
+    name: "Fixture Scent B", brand: "Fixture House B", family: "Fresh / Test", notes: "Fixture note B",
+    price: 1250, sizes: JSON.stringify(["10ml", "30ml"]),
+    sizePrices: JSON.stringify({ "10ml": 1250, "30ml": 2100 }),
+    sizeStocks: JSON.stringify({ "10ml": 10, "30ml": 8 }), audience: "Unisex", vibe: "Fresh", type: "EDT",
+    premiumName: null, premiumPrice: null, premiumStock: 0,
+    image: "https://images.example.test/fixture-b.webp", badge: null, tone: "#dad7d0", stock: 18, status: "In stock",
+  });
+});
+
 
 function mockReq(cookieHeader?: string) {
   return {
@@ -47,7 +67,7 @@ describe("orders.create price integrity", () => {
   it("recomputes prices from the catalogue and ignores tampered client prices", async () => {
     const caller = appRouter.createCaller(await signIn("Price Tester", "01700000000"));
 
-    // Seed product #1 (Santal 04): 10ml list price ৳1850. The client claims ৳1.
+    // Fixture product #1: 10ml list price ৳1850. The client claims ৳1.
     const result = await caller.orders.create({
       items: [
         {
@@ -73,25 +93,25 @@ describe("orders.create price integrity", () => {
     // The stored snapshot carries catalogue values, not the tampered ones.
     const mine = await caller.orders.mine();
     const storedItem = mine[mine.length - 1]!.items[0]!;
-    expect(storedItem.name).toBe("Santal 04");
-    expect(storedItem.brand).toBe("Maison Néroli");
+    expect(storedItem.name).toBe("Fixture Scent A");
+    expect(storedItem.brand).toBe("Fixture House A");
     expect(storedItem.price).toBe(1850);
-    expect(storedItem.image).toContain("images.unsplash.com");
+    expect(storedItem.image).toBe("https://images.example.test/fixture-a.webp");
   });
 
   it("charges the premium bottle on top of the size price when requested", async () => {
     const caller = appRouter.createCaller(await signIn("Premium Tester", "01700000001"));
 
-    // Santal 04 10ml (৳1850) + "Crystal flacon" premium (৳1500) = ৳3350 → free delivery.
+    // Fixture Scent A 10ml (৳1850) + "Fixture Bottle" premium (৳1500) = ৳3350 → free delivery.
     const result = await caller.orders.create({
       items: [
         {
           productId: "1",
-          name: "Santal 04",
+          name: "Fixture Scent A",
           size: "10ml",
           price: 10,
           quantity: 1,
-          premium: "Crystal flacon",
+          premium: "Fixture Bottle",
         },
       ],
       name: "Premium Tester",
@@ -125,15 +145,15 @@ describe("orders.create price integrity", () => {
     await expect(
       caller.orders.create({
         ...base,
-        items: [{ productId: "1", name: "Santal 04", size: "999ml", price: 1, quantity: 1 }],
+        items: [{ productId: "1", name: "Fixture Scent A", size: "999ml", price: 1, quantity: 1 }],
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
-    // Premium bottle claimed on a product that has none (product #2, Musc 11).
+    // Premium bottle claimed on a product that has none (product #2, Fixture Scent B).
     await expect(
       caller.orders.create({
         ...base,
-        items: [{ productId: "2", name: "Musc 11", size: "10ml", price: 1, quantity: 1, premium: "Ghost bottle" }],
+        items: [{ productId: "2", name: "Fixture Scent B", size: "10ml", price: 1, quantity: 1, premium: "Ghost bottle" }],
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
@@ -146,8 +166,8 @@ describe("orders.create inventory validation", () => {
     const beforeStocks = JSON.parse(before.sizeStocks ?? "{}");
     const result = await caller.orders.create({
       items: [
-        { productId: "2", name: "Musc 11", size: "10ml", price: 1, quantity: 2 },
-        { productId: "2", name: "Musc 11", size: "10ml", price: 1, quantity: 3 },
+        { productId: "2", name: "Fixture Scent B", size: "10ml", price: 1, quantity: 2 },
+        { productId: "2", name: "Fixture Scent B", size: "10ml", price: 1, quantity: 3 },
       ],
       name: "Atomic Stock Tester",
       phone: "01700000005",
@@ -166,7 +186,7 @@ describe("orders.create inventory validation", () => {
     const caller = appRouter.createCaller(await signIn("Stock Tester", "01700000003"));
     await expect(
       caller.orders.create({
-        items: [{ productId: "1", name: "Santal 04", size: "10ml", price: 1, quantity: 21 }],
+        items: [{ productId: "1", name: "Fixture Scent A", size: "10ml", price: 1, quantity: 21 }],
         name: "Stock Tester",
         phone: "01700000003",
         address: "Dhaka",
@@ -180,7 +200,7 @@ describe("orders.create inventory validation", () => {
     const caller = appRouter.createCaller(await signIn("Premium Stock Tester", "01700000004"));
     await expect(
       caller.orders.create({
-        items: [{ productId: "1", name: "Santal 04", size: "10ml", price: 1, quantity: 6, premium: "Crystal flacon" }],
+        items: [{ productId: "1", name: "Fixture Scent A", size: "10ml", price: 1, quantity: 6, premium: "Fixture Bottle" }],
         name: "Premium Stock Tester",
         phone: "01700000004",
         address: "Dhaka",

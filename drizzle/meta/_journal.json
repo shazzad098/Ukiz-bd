@@ -35,6 +35,20 @@
       "when": 1792313699387,
       "tag": "0004_chilly_lila_cheney",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793788525972,
+      "tag": "0005_google_customer_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793788888033,
+      "tag": "0006_customer_email_casefold",
+      "breakpoints": true
     }
   ],
   "version": "7"

@@ -7,24 +7,39 @@ import type { NextFunction, Request, Response } from "express";
 //   and must not get poisoned with a cached HSTS policy.
 // - CSP is production-only too: Vite dev middleware serves HMR clients with
 //   inline/eval scripts that a strict policy would break.
-// - frame-ancestors 'self': the OAuth flow is a full-page redirect (see
-//   client/src/const.ts), so nothing legitimate embeds this app cross-origin.
+// - frame-ancestors 'self': the OAuth flow is a full-page redirect, so nothing
+//   legitimate embeds this app cross-origin.
 // ---------------------------------------------------------------------------
 
-const PROD_CSP = [
-  "default-src 'self'",
-  // React/Framer set inline styles at runtime; fonts come from Google Fonts.
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline' https:",
-  // Product photos: self-hosted, Supabase public URLs and legacy hotlinks.
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data: https:",
-  "connect-src 'self'",
-  "frame-ancestors 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
+function configuredSupabaseOrigin(supabaseUrl?: string): string | null {
+  if (!supabaseUrl?.trim()) return null;
+  try {
+    const configured = new URL(supabaseUrl.trim());
+    if (configured.protocol !== "https:" || configured.username || configured.password) return null;
+    return configured.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function productionContentSecurityPolicy(supabaseUrl = process.env.SUPABASE_URL): string {
+  const supabaseOrigin = configuredSupabaseOrigin(supabaseUrl);
+  const connectSources = ["'self'", ...(supabaseOrigin ? [supabaseOrigin] : [])].join(" ");
+  return [
+    "default-src 'self'",
+    // React/Framer set inline styles at runtime; fonts come from Google Fonts.
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https:",
+    // Product photos: self-hosted, Supabase public URLs and legacy hotlinks.
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data: https:",
+    `connect-src ${connectSources}`,
+    "frame-ancestors 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
@@ -77,7 +92,7 @@ export function securityHeaders() {
         "Strict-Transport-Security",
         "max-age=63072000; includeSubDomains; preload"
       );
-      res.setHeader("Content-Security-Policy", PROD_CSP);
+      res.setHeader("Content-Security-Policy", productionContentSecurityPolicy());
     }
     next();
   };

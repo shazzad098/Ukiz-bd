@@ -1,18 +1,19 @@
 import { trpc } from "@/lib/trpc";
-import { FREE_DELIVERY_THRESHOLD, MERCHANT_SEND_MONEY_NUMBER } from "@shared/order";
+import { FREE_DELIVERY_THRESHOLD } from "@shared/order";
 
 export const DEFAULT_SETTINGS = {
-  announcement: "Complimentary delivery over ৳3,000 ✳ Authenticity, always ✳ Small-batch edits / big presence",
-  merchantNumber: MERCHANT_SEND_MONEY_NUMBER,
-  supportEmail: "ukizbdofficial@gmail.com",
+  announcement: "",
+  merchantNumber: "",
+  supportEmail: "",
   supportPhone: "",
   freeThreshold: FREE_DELIVERY_THRESHOLD,
 };
 
 export function usePublicSettings() {
   const query = trpc.settings.public.useQuery(undefined, {
-    staleTime: 1000 * 60,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const data = query.data;
   return {

@@ -1,4 +1,5 @@
-import { integer, pgEnum, pgTable, serial, text, timestamp, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { integer, pgEnum, pgTable, serial, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 
 // Postgres enums (Supabase). Names are global per database — keep them stable.
 export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
@@ -30,7 +31,7 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 /**
- * Storefront customers (email/password sign up). Separate from Manus OAuth
+ * Storefront customers (password or Supabase OAuth sign up). Separate from Manus OAuth
  * users above. Sessions live in a long-lived httpOnly cookie so customers
  * stay logged in across refresh / window close until they log out.
  */
@@ -38,13 +39,16 @@ export const customers = pgTable("customers", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 120 }).notNull(),
   email: varchar("email", { length: 320 }).notNull().unique(),
-  passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  passwordHash: varchar("passwordHash", { length: 255 }),
+  supabaseUserId: varchar("supabaseUserId", { length: 128 }).unique(),
   phone: varchar("phone", { length: 32 }),
   address: text("address"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()).notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("customers_email_lower_unique").on(sql`lower(${table.email})`),
+]);
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = typeof customers.$inferInsert;

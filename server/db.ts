@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { InsertUser, users } from "../drizzle/schema";
@@ -6,7 +6,7 @@ import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
+// Lazily create the drizzle instance so read-only local tooling can run without a DB.
 // Works with Supabase: paste the pooler (port 6543) or direct (port 5432)
 // connection string into DATABASE_URL. `prepare: false` keeps it compatible
 // with Supabase's transaction-mode pooler.
@@ -25,11 +25,10 @@ export async function getDb() {
 
 // One-shot health check: actually talks to the database instead of just
 // building a client. Returns ok:false with a short actionable message so
-// startup logs and the admin panel can tell "in-memory fallback" apart
-// from a real Supabase connection.
+// startup logs and the admin panel can distinguish a disconnected store.
 export async function checkDatabase(): Promise<{ ok: boolean; error?: string }> {
   if (!process.env.DATABASE_URL) {
-    return { ok: false, error: "DATABASE_URL is not set — running on in-memory seed data." };
+    return { ok: false, error: "DATABASE_URL is not set — Supabase data is unavailable." };
   }
   try {
     const sql = postgres(process.env.DATABASE_URL, {
@@ -141,58 +140,25 @@ import { customers, InsertCustomer, Customer } from "../drizzle/schema";
 import { orders, InsertOrder, Order, OrderItem, payments, Payment, InsertPayment, contacts, Contact, InsertContact, inventoryEvents, InventoryEvent, analyticsEvents, AnalyticsEvent, InsertAnalyticsEvent } from "../drizzle/schema";
 import { products, InsertProduct, Product } from "../drizzle/schema";
 
-const seedProducts: InsertProduct[] = [
-  { name: "Santal 04", brand: "Maison Néroli", family: "Woody / Amber", notes: "Sandalwood · Cardamom · Cedar", price: 1850, sizes: JSON.stringify(["10ml", "30ml", "50ml"]), sizePrices: JSON.stringify({ "10ml": 1850, "30ml": 3200, "50ml": 4500 }), sizeStocks: JSON.stringify({ "10ml": 20, "30ml": 12, "50ml": 10 }), audience: "Unisex", vibe: "Woody", type: "EDP", premiumName: "Crystal flacon", premiumPrice: 1500, premiumStock: 5, image: "https://images.unsplash.com/photo-1615634260167-c8cdede054de?auto=format&fit=crop&w=900&q=88", badge: "Bestseller", tone: "#d7c1a0", stock: 42, status: "In stock" },
-  { name: "Musc 11", brand: "Atelier N° 11", family: "Clean / Musky", notes: "White musk · Linen · Ambrette", price: 1250, sizes: JSON.stringify(["10ml", "30ml"]), sizePrices: JSON.stringify({ "10ml": 1250, "30ml": 2100 }), sizeStocks: JSON.stringify({ "10ml": 10, "30ml": 8 }), audience: "Women", vibe: "Fresh", type: "EDT", premiumName: null, premiumPrice: null, premiumStock: 0, image: "https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=900&q=88", badge: "New", tone: "#dad7d0", stock: 18, status: "Low stock" },
-  { name: "Bois Rosé", brand: "L'Objet Parfum", family: "Floral / Woody", notes: "Damask rose · Patchouli · Incense", price: 2200, sizes: JSON.stringify(["10ml", "30ml", "50ml"]), sizePrices: JSON.stringify({ "10ml": 2200, "30ml": 3900, "50ml": 5400 }), sizeStocks: JSON.stringify({ "10ml": 12, "30ml": 9, "50ml": 6 }), audience: "Women", vibe: "Floral", type: "EDP", premiumName: null, premiumPrice: null, premiumStock: 0, image: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=88", badge: null, tone: "#cdb2a2", stock: 27, status: "In stock" },
-  { name: "Vetiver 16", brand: "Cendre Studio", family: "Green / Earthy", notes: "Vetiver · Grapefruit · Moss", price: 1650, sizes: JSON.stringify(["10ml", "30ml"]), sizePrices: JSON.stringify({ "10ml": 1650, "30ml": 2900 }), sizeStocks: JSON.stringify({ "10ml": 4, "30ml": 2 }), audience: "Men", vibe: "Earthy", type: "EDT", premiumName: null, premiumPrice: null, premiumStock: 0, image: "https://images.unsplash.com/photo-1588405748880-12d1d2a59f75?auto=format&fit=crop&w=900&q=88", badge: "Limited", tone: "#aeb8ab", stock: 6, status: "Low stock" },
-  { name: "Ambre 09", brand: "Maison Néroli", family: "Amber / Spicy", notes: "Warm amber · Saffron · Vanilla", price: 1950, sizes: JSON.stringify(["10ml", "30ml", "50ml"]), sizePrices: JSON.stringify({ "10ml": 1950, "30ml": 3400, "50ml": 4800 }), sizeStocks: JSON.stringify({ "10ml": 14, "30ml": 10, "50ml": 6 }), audience: "Unisex", vibe: "Warm", type: "Parfum", premiumName: "Voyager case", premiumPrice: 800, premiumStock: 8, image: "https://images.unsplash.com/photo-1587017539504-67cfbddac569?auto=format&fit=crop&w=900&q=88", badge: null, tone: "#b98f64", stock: 30, status: "In stock" },
-  { name: "Figue 07", brand: "Bureau Olfactif", family: "Green / Fresh", notes: "Fig leaf · Neroli · Soft woods", price: 1100, sizes: JSON.stringify(["10ml", "30ml"]), sizePrices: JSON.stringify({ "10ml": 1100, "30ml": 1900 }), sizeStocks: JSON.stringify({ "10ml": 12, "30ml": 10 }), audience: "Unisex", vibe: "Fresh", type: "EDT", premiumName: null, premiumPrice: null, premiumStock: 0, image: "https://images.unsplash.com/photo-1563170351-be82bc888aa4?auto=format&fit=crop&w=900&q=88", badge: "New", tone: "#b7c0aa", stock: 22, status: "In stock" },
-];
-
 let inMemoryProducts: Product[] = [];
 let nextId = 1;
 
-function ensureSeeded() {
-  if (inMemoryProducts.length === 0) {
-    inMemoryProducts = seedProducts.map((p) => ({
-      ...p,
-      id: nextId++,
-      badge: p.badge ?? null,
-      sizePrices: p.sizePrices ?? null,
-      sizeStocks: p.sizeStocks ?? null,
-      audience: p.audience ?? "Unisex",
-      vibe: p.vibe ?? null,
-      type: p.type ?? null,
-      premiumName: p.premiumName ?? null,
-      premiumPrice: p.premiumPrice ?? null,
-      premiumStock: p.premiumStock ?? 0,
-      stock: p.stock ?? 0,
-      status: p.status ?? "In stock",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }));
+function assertPersistentStore(db: unknown, action: string): void {
+  if (!db && process.env.NODE_ENV !== "test") {
+    throw new Error(`Supabase is not connected. Configure DATABASE_URL before you ${action}.`);
   }
 }
 
 export async function listProducts() {
   const db = await getDb();
-  if (!db) {
-    ensureSeeded();
-    return inMemoryProducts;
-  }
-  const rows = await db.select().from(products);
-  if (rows.length === 0) {
-    await db.insert(products).values(seedProducts);
-    return db.select().from(products);
-  }
-  return rows;
+  if (!db) return process.env.NODE_ENV === "test" ? inMemoryProducts : [];
+  return db.select().from(products);
 }
 
 export async function createProduct(product: InsertProduct) {
   const db = await getDb();
+  assertPersistentStore(db, "save catalogue products");
   if (!db) {
-    ensureSeeded();
     const row: Product = {
       ...product,
       id: nextId++,
@@ -218,8 +184,8 @@ export async function createProduct(product: InsertProduct) {
 
 export async function updateProduct(id: number, patch: Partial<InsertProduct>) {
   const db = await getDb();
+  assertPersistentStore(db, "update catalogue products");
   if (!db) {
-    ensureSeeded();
     inMemoryProducts = inMemoryProducts.map((p) =>
       p.id === id ? { ...p, ...patch, updatedAt: new Date() } : p
     );
@@ -230,6 +196,7 @@ export async function updateProduct(id: number, patch: Partial<InsertProduct>) {
 
 export async function deleteProduct(id: number) {
   const db = await getDb();
+  assertPersistentStore(db, "delete catalogue products");
   if (!db) {
     inMemoryProducts = inMemoryProducts.filter(p => p.id !== id);
     return;
@@ -238,39 +205,64 @@ export async function deleteProduct(id: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Customers (storefront email/password accounts). In-memory fallback mirrors
-// the products pattern so local dev works with no DATABASE_URL.
+// Customers (storefront password or verified Supabase OAuth accounts).
+// Memory-backed writes are reserved for unit tests; the app requires Supabase.
 // ---------------------------------------------------------------------------
 
 let inMemoryCustomers: Customer[] = [];
 let nextCustomerId = 1;
 
 export async function createCustomer(input: InsertCustomer): Promise<Customer> {
+  const normalizedInput: InsertCustomer = { ...input, email: input.email.trim().toLowerCase() };
   const db = await getDb();
+  assertPersistentStore(db, "create Customer persistent data");
   if (!db) {
     const row: Customer = {
-      ...input,
+      ...normalizedInput,
       id: nextCustomerId++,
-      phone: input.phone ?? null,
-      address: input.address ?? null,
+      passwordHash: input.passwordHash ?? null,
+      supabaseUserId: input.supabaseUserId ?? null,
+      phone: normalizedInput.phone ?? null,
+      address: normalizedInput.address ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
-      lastSignedIn: input.lastSignedIn ?? new Date(),
+      lastSignedIn: normalizedInput.lastSignedIn ?? new Date(),
     };
     inMemoryCustomers.push(row);
     return row;
   }
-  await db.insert(customers).values(input);
-  const rows = await db.select().from(customers).where(eq(customers.email, input.email)).limit(1);
+  await db.insert(customers).values(normalizedInput);
+  const rows = await db.select().from(customers).where(eq(customers.email, normalizedInput.email)).limit(1);
   if (!rows[0]) throw new Error("Failed to create customer");
   return rows[0];
 }
 
 export async function getCustomerByEmail(email: string): Promise<Customer | undefined> {
+  const normalizedEmail = email.trim().toLowerCase();
   const db = await getDb();
-  if (!db) return inMemoryCustomers.find(c => c.email.toLowerCase() === email.toLowerCase());
-  const rows = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!db) return inMemoryCustomers.find(c => c.email.trim().toLowerCase() === normalizedEmail);
+  const rows = await db.select().from(customers).where(sql`lower(${customers.email}) = ${normalizedEmail}`).limit(1);
   return rows[0];
+}
+
+export async function getCustomerBySupabaseUserId(supabaseUserId: string): Promise<Customer | undefined> {
+  const db = await getDb();
+  if (!db) return inMemoryCustomers.find(customer => customer.supabaseUserId === supabaseUserId);
+  const rows = await db.select().from(customers).where(eq(customers.supabaseUserId, supabaseUserId)).limit(1);
+  return rows[0];
+}
+
+export async function linkCustomerSupabaseUserId(customerId: number, supabaseUserId: string): Promise<void> {
+  const db = await getDb();
+  assertPersistentStore(db, "link a Google customer identity");
+  if (!db) {
+    const customer = inMemoryCustomers.find(row => row.id === customerId);
+    if (!customer) throw new Error("Customer not found");
+    if (customer.supabaseUserId && customer.supabaseUserId !== supabaseUserId) throw new Error("Customer already linked");
+    inMemoryCustomers = inMemoryCustomers.map(row => row.id === customerId ? { ...row, supabaseUserId } : row);
+    return;
+  }
+  await db.update(customers).set({ supabaseUserId }).where(eq(customers.id, customerId));
 }
 
 export async function getCustomerById(id: number): Promise<Customer | undefined> {
@@ -288,6 +280,7 @@ export async function listCustomers(): Promise<Customer[]> {
 
 export async function touchCustomerSignin(id: number): Promise<void> {
   const db = await getDb();
+  assertPersistentStore(db, "touchCustomerSignin persistent data");
   if (!db) {
     inMemoryCustomers = inMemoryCustomers.map(c => c.id === id ? { ...c, lastSignedIn: new Date() } : c);
     return;
@@ -324,6 +317,7 @@ export function parseOrderItems(input: unknown): OrderItem[] {
 
 export async function createOrder(input: InsertOrder): Promise<Order> {
   const db = await getDb();
+  assertPersistentStore(db, "create Order persistent data");
   if (!db) {
     const row: Order = {
       ...input,
@@ -372,6 +366,7 @@ export async function getOrderByPaymentReference(reference: string): Promise<Ord
 
 export async function updateOrderPayment(id: number, patch: Pick<InsertOrder, "paymentStatus" | "paymentProvider" | "paymentReference" | "paidAmount"> & { status?: string }) {
   const db = await getDb();
+  assertPersistentStore(db, "update OrderPayment persistent data");
   if (!db) {
     inMemoryOrders = inMemoryOrders.map(row => row.id === id ? { ...row, ...patch, paymentUpdatedAt: new Date(), updatedAt: new Date() } : row);
     return;
@@ -397,7 +392,6 @@ function numberRecord(raw: unknown): Record<string, number> {
 }
 
 function reserveInMemoryInventory(items: InventoryRequest[], orderId: number | null) {
-  ensureSeeded();
   const byProduct = new Map<number, { sizes: Map<string, number>; premium: number }>();
   for (const item of items) {
     const productId = Number(item.productId);
@@ -448,6 +442,7 @@ export async function createOrderWithInventory(input: InsertOrder, items: Invent
 export async function createOrderWithInventory(input: InsertOrder, items: InventoryRequest | InventoryRequest[]): Promise<Order> {
   const requests = Array.isArray(items) ? items : [items];
   const db = await getDb();
+  assertPersistentStore(db, "place orders");
   if (!db) {
     const eventStart = inMemoryInventoryEvents.length;
     reserveInMemoryInventory(requests, null);
@@ -510,6 +505,7 @@ export async function createOrderWithInventory(input: InsertOrder, items: Invent
 
 export async function createContact(input: InsertContact): Promise<Contact> {
   const db = await getDb();
+  assertPersistentStore(db, "create Contact persistent data");
   if (!db) {
     const row: Contact = { ...input, id: nextContactId++, status: input.status ?? "new", createdAt: new Date(), updatedAt: new Date() };
     inMemoryContacts.push(row);
@@ -531,6 +527,7 @@ export async function listContacts(): Promise<Contact[]> {
 
 export async function updateContactStatus(id: number, status: string) {
   const db = await getDb();
+  assertPersistentStore(db, "update ContactStatus persistent data");
   if (!db) {
     inMemoryContacts = inMemoryContacts.map(row => row.id === id ? { ...row, status, updatedAt: new Date() } : row);
     return;
@@ -543,6 +540,7 @@ let nextPaymentId = 1;
 
 export async function createPayment(input: InsertPayment): Promise<Payment> {
   const db = await getDb();
+  assertPersistentStore(db, "create Payment persistent data");
   if (!db) {
     const row: Payment = { ...input, id: nextPaymentId++, providerPaymentId: input.providerPaymentId ?? null, providerTransactionId: input.providerTransactionId ?? null, currency: input.currency ?? "BDT", status: input.status ?? "initiated", rawPayload: input.rawPayload ?? null, createdAt: new Date(), updatedAt: new Date() };
     inMemoryPayments.push(row);
@@ -562,6 +560,7 @@ export async function findPaymentByProviderId(providerPaymentId: string) {
 
 export async function updatePayment(id: number, patch: Partial<InsertPayment>) {
   const db = await getDb();
+  assertPersistentStore(db, "update Payment persistent data");
   if (!db) {
     inMemoryPayments = inMemoryPayments.map(row => row.id === id ? { ...row, ...patch, updatedAt: new Date() } : row);
     return;
@@ -613,7 +612,6 @@ export async function updateOrderStatus(id: number, status: string): Promise<voi
     const order = inMemoryOrders.find(row => row.id === id);
     if (!order) return;
     if (status === "Cancelled" && order.status !== "Cancelled") {
-      ensureSeeded();
       for (const item of parseOrderItems(order.items)) {
         const product = inMemoryProducts.find(row => row.id === Number(item.productId));
         if (!product) continue;
@@ -679,13 +677,14 @@ let nextCouponId = 1;
 
 export async function listCoupons(): Promise<Coupon[]> {
   const db = await getDb();
-  if (!db) return [...inMemoryCoupons].reverse();
+  if (!db) return process.env.NODE_ENV === "test" ? [...inMemoryCoupons].reverse() : [];
   const rows = await db.select().from(coupons);
   return [...rows].reverse();
 }
 
 export async function createCoupon(input: InsertCoupon): Promise<Coupon> {
   const db = await getDb();
+  assertPersistentStore(db, "create Coupon persistent data");
   if (!db) {
     const row: Coupon = {
       ...input,
@@ -707,6 +706,7 @@ export async function createCoupon(input: InsertCoupon): Promise<Coupon> {
 
 export async function updateCoupon(id: number, patch: Partial<InsertCoupon>): Promise<void> {
   const db = await getDb();
+  assertPersistentStore(db, "update Coupon persistent data");
   if (!db) {
     inMemoryCoupons = inMemoryCoupons.map(c => c.id === id ? { ...c, ...patch, updatedAt: new Date() } : c);
     return;
@@ -716,6 +716,7 @@ export async function updateCoupon(id: number, patch: Partial<InsertCoupon>): Pr
 
 export async function deleteCoupon(id: number): Promise<void> {
   const db = await getDb();
+  assertPersistentStore(db, "delete Coupon persistent data");
   if (!db) {
     inMemoryCoupons = inMemoryCoupons.filter(c => c.id !== id);
     return;
@@ -750,23 +751,15 @@ export async function checkCoupon(rawCode: string, subtotal: number): Promise<Co
 // Store settings (key/value with built-in fallbacks).
 // ---------------------------------------------------------------------------
 
-export const SETTING_DEFAULTS: Record<string, string> = {
-  announcement: "Complimentary delivery over ৳3,000 ✳ Authenticity, always ✳ Small-batch edits / big presence",
-  merchantNumber: "01814108729",
-  supportEmail: "ukizbdofficial@gmail.com",
-  supportPhone: "",
-  freeThreshold: "3000",
-};
-
 export async function getStoreSettings(): Promise<Record<string, string>> {
-  const result: Record<string, string> = { ...SETTING_DEFAULTS };
+  const result: Record<string, string> = {};
   try {
     const db = await getDb();
     if (!db) return result;
     const rows = await db.select().from(storeSettings);
     for (const row of rows) result[row.key] = row.value;
   } catch {
-    // fall back to defaults
+    // Without a healthy database, do not substitute sample business data.
   }
   return result;
 }
