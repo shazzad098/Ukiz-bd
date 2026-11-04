@@ -20,7 +20,11 @@ async function verifyMixedCaseLookup() {
     if (found?.id !== customerId) throw new Error("Case-insensitive customer lookup failed.");
     console.log("Case-insensitive customer email lookup passed.");
   } finally {
-    if (customerId) await db.delete(customers).where(eq(customers.id, customerId));
+    try {
+      if (customerId) await db.delete(customers).where(eq(customers.id, customerId));
+    } finally {
+      await db.$client.end({ timeout: 5 });
+    }
   }
 }
 
