@@ -133,15 +133,10 @@ class SDKServer {
     const data = await this.oauthService.getUserInfoByToken({
       accessToken,
     } as ExchangeTokenResponse);
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoResponse;
+    const raw = data as unknown as Record<string, unknown>;
+    const platform = typeof raw.platform === "string" ? raw.platform : data.platform ?? null;
+    const loginMethod = this.deriveLoginMethod(raw.platforms, platform);
+    return { ...data, platform: loginMethod, loginMethod };
   }
 
   private parseCookies(cookieHeader: string | undefined) {
@@ -245,15 +240,10 @@ class SDKServer {
       payload
     );
 
-    const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null
-    );
-    return {
-      ...(data as any),
-      platform: loginMethod,
-      loginMethod,
-    } as GetUserInfoWithJwtResponse;
+    const raw = data as unknown as Record<string, unknown>;
+    const platform = typeof raw.platform === "string" ? raw.platform : data.platform ?? null;
+    const loginMethod = this.deriveLoginMethod(raw.platforms, platform);
+    return { ...data, platform: loginMethod, loginMethod };
   }
 
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {

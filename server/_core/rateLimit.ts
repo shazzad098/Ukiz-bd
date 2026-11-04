@@ -48,14 +48,9 @@ export function resetAttempts(): void {
   buckets.clear();
 }
 
-/** Best-effort client IP behind the (trusted) proxy, else the socket address. */
+/** Use Express's client IP after the app's configured trusted-proxy boundary. */
 export function clientIp(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return req.socket?.remoteAddress || "unknown";
+  return req.ip?.trim() || req.socket?.remoteAddress || "unknown";
 }
 
 /**

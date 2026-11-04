@@ -1,52 +1,27 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { AlertCircle, Home } from "lucide-react";
-import { useLocation } from "wouter";
+import { ArrowLeft, ArrowRight, Search } from "lucide-react";
+import { Link } from "wouter";
+import StorefrontLayout from "@/components/StorefrontLayout";
 
 export default function NotFound() {
-  const [, setLocation] = useLocation();
-
-  const handleGoHome = () => {
-    setLocation("/");
-  };
-
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <Card className="w-full max-w-lg mx-4 shadow-lg border-0 bg-white/80 backdrop-blur-sm">
-        <CardContent className="pt-8 pb-8 text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-red-100 rounded-full animate-pulse" />
-              <AlertCircle className="relative h-16 w-16 text-red-500" />
+    <StorefrontLayout eyebrow="A wrong turn / 404" title="That scent trail ends here.">
+      <section className="container pb-24">
+        <div className="mx-auto grid max-w-4xl gap-8 rounded-[1.6rem] bg-[#1a1a18] p-7 text-[#f5f0e6] md:grid-cols-[.75fr_1.25fr] md:items-center md:p-12">
+          <div className="grid min-h-52 place-items-center rounded-[1.2rem] border border-white/10 bg-[radial-gradient(circle_at_50%_50%,rgba(199,169,112,.24),transparent_65%)]">
+            <span className="serif text-[8rem] leading-none text-[#d2b77e]">404</span>
+          </div>
+          <div>
+            <div className="eyebrow mb-4 text-[#d2b77e]">Page not found</div>
+            <h2 className="serif text-3xl leading-tight md:text-4xl">The page you’re looking for has moved on.</h2>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70">The link may be old, or the composition may no longer be in our edit. Let’s find you something that is.</p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/shop" className="primary-button"><Search size={14} /> Explore the edit</Link>
+              <Link href="/" className="secondary-button border-white/25 text-white hover:border-white"><ArrowLeft size={14} /> Back home</Link>
             </div>
+            <Link href="/contact" className="mt-7 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[.12em] text-[#d2b77e]">Need a hand? Contact us <ArrowRight size={13} /></Link>
           </div>
-
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">404</h1>
-
-          <h2 className="text-xl font-semibold text-slate-700 mb-4">
-            Page Not Found
-          </h2>
-
-          <p className="text-slate-600 mb-8 leading-relaxed">
-            Sorry, the page you are looking for doesn't exist.
-            <br />
-            It may have been moved or deleted.
-          </p>
-
-          <div
-            id="not-found-button-group"
-            className="flex flex-col sm:flex-row gap-3 justify-center"
-          >
-            <Button
-              onClick={handleGoHome}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Go Home
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </section>
+    </StorefrontLayout>
   );
 }

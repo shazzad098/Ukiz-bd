@@ -8,6 +8,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ukiz_ci
+          POSTGRES_USER: ukiz_ci
+          POSTGRES_PASSWORD: ukiz_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ukiz_ci -d ukiz_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,4 +33,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate
+      - name: Validate database migrations against disposable PostgreSQL
+        env:
+          DATABASE_URL: postgresql://ukiz_ci:ukiz_ci@127.0.0.1:5432/ukiz_ci
+        run: pnpm db:push
       - run: pnpm build
+      - name: Smoke-test the built application
+        run: scripts/runtime-smoke.sh

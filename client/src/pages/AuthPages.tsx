@@ -14,7 +14,7 @@ function Shell({ eyebrow, title, copy, children }: { eyebrow: string; title: str
             <h2 className="serif text-4xl leading-tight">Your bag, your wishlist, your orders — kept for you.</h2>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-white/55">{copy}</p>
             <div className="mt-8 grid gap-3 text-sm text-white/60">
-              <div className="flex gap-3"><Sparkles size={16} className="text-[#c7a970]" /> Add to bag & save wishlist</div>
+              <div className="flex gap-3"><Sparkles size={16} className="text-[#c7a970]" /> Your bag and wishlist are ready when you are</div>
               <div className="flex gap-3"><LockKeyhole size={16} className="text-[#c7a970]" /> Secure, faster checkout</div>
               <div className="flex gap-3"><ShieldCheck size={16} className="text-[#c7a970]" /> You stay signed in until you log out</div>
             </div>
@@ -38,7 +38,7 @@ export function SignIn() {
     login({ email: email.trim(), password });
   };
   return (
-    <Shell eyebrow="Your space / 05" title="Welcome back." copy="Sign in to add fragrances to your bag, keep a wishlist, and check out.">
+    <Shell eyebrow="Your space / 05" title="Welcome back." copy="Sign in to track your orders and check out securely. Your bag and wishlist work before sign-in, too.">
       <div className="eyebrow mb-4">Sign in</div>
       <h2 className="serif text-4xl">Good to see you.</h2>
       <form onSubmit={submit} className="mt-8 grid gap-6">
@@ -78,7 +78,7 @@ export function SignUp() {
     signup({ name: name.trim(), email: email.trim(), password, phone: phone.trim() || undefined });
   };
   return (
-    <Shell eyebrow="Your space / 05" title="Join the house." copy="Create an account to shop the edit, keep a wishlist, and check out in seconds.">
+    <Shell eyebrow="Your space / 05" title="Join the house." copy="Create an account to track orders and check out securely. You can start a bag or wishlist before signing in.">
       <div className="eyebrow mb-4">Sign up</div>
       <h2 className="serif text-4xl">A minute, then all yours.</h2>
       <form onSubmit={submit} className="mt-8 grid gap-6">

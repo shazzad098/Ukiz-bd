@@ -1,8 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
 
-// Read live (not from the cached ENV object) so tests and late-set env vars
-// behave the same as production boot.
-
 // ---------------------------------------------------------------------------
 // Transport + content security headers.
 //
@@ -16,8 +13,8 @@ import type { NextFunction, Request, Response } from "express";
 
 const PROD_CSP = [
   "default-src 'self'",
-  "script-src 'self'",
   // React/Framer set inline styles at runtime; fonts come from Google Fonts.
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https:",
   // Product photos: self-hosted, Supabase public URLs and legacy hotlinks.
   "img-src 'self' data: blob: https:",
@@ -34,13 +31,22 @@ function isProduction(): boolean {
 }
 
 function requestProto(req: Request): string {
-  if (req.protocol === "https") return "https";
-  const forwarded = req.headers["x-forwarded-proto"];
-  const list = Array.isArray(forwarded) ? forwarded : (forwarded ?? "").split(",");
-  return list.some(p => p.trim().toLowerCase() === "https") ? "https" : "http";
+  // Express resolves this through the app's explicit one-hop trusted proxy
+  // configuration; raw X-Forwarded-Proto must never be trusted here directly.
+  return req.protocol;
 }
 
-/** 301 redirect to the canonical https:// URL when serving production over http. */
+export function canonicalOrigin(): string {
+  try {
+    const configured = new URL(process.env.PUBLIC_APP_URL?.trim() || "https://ukizbd.com");
+    if (configured.protocol === "https:" && !configured.username && !configured.password) return configured.origin;
+  } catch {
+    // Fall back to the storefront's known canonical origin below.
+  }
+  return "https://ukizbd.com";
+}
+
+/** Redirect production HTTP traffic to the configured canonical HTTPS origin. */
 export function httpsRedirect() {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!isProduction()) {
@@ -48,7 +54,7 @@ export function httpsRedirect() {
       return;
     }
     if (requestProto(req) !== "https") {
-      res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+      res.redirect(301, `${canonicalOrigin()}${req.originalUrl}`);
       return;
     }
     next();

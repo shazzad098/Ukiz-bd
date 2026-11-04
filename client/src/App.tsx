@@ -7,6 +7,7 @@ import AnalyticsTracker from "./components/AnalyticsTracker";
 import SeoController from "./components/Seo";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { CartProvider } from "@/lib/cart";
+import { WishlistProvider } from "@/lib/wishlist";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
 
@@ -69,5 +70,5 @@ function Router() {
 }
 
 export default function App() {
-  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="top-center" /><CartProvider><SeoController /><AnalyticsTracker /><Router /></CartProvider></TooltipProvider></ThemeProvider></ErrorBoundary>;
+  return <ErrorBoundary><ThemeProvider defaultTheme="light"><TooltipProvider><Toaster position="top-center" /><CartProvider><WishlistProvider><SeoController /><AnalyticsTracker /><Router /></WishlistProvider></CartProvider></TooltipProvider></ThemeProvider></ErrorBoundary>;
 }

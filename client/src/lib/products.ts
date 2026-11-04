@@ -84,7 +84,8 @@ export function maxPrice(p: { price: number; sizePrices?: Record<string, number>
 // Stock for one size. Returns undefined when not tracked (treat as available).
 export function stockForSize(p: { sizeStocks?: Record<string, number> | null; stock?: number }, size: string): number | undefined {
   const v = p.sizeStocks?.[size];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, v);
+  if (typeof p.stock === "number" && Number.isFinite(p.stock)) return Math.max(0, p.stock);
   return undefined;
 }
 
@@ -323,7 +324,6 @@ export function useProducts() {
     staleTime: 1000 * 30,
   });
   const rows = query.data;
-  const products: StoreProduct[] =
-    rows && rows.length > 0 ? rows.map(toStoreProduct) : fallbackProducts;
+  const products: StoreProduct[] = rows?.map(toStoreProduct) ?? [];
   return { ...query, products };
 }

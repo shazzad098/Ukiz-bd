@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import StorefrontLayout from "@/components/StorefrontLayout";
 import { money } from "./Home";
 import { fromPrice, maxPrice, useProducts, type StoreProduct } from "@/lib/products";
+import { imageSrcSet, imageUrl } from "@/lib/images";
 
 type SortKey = "featured" | "price-asc" | "price-desc" | "newest" | "oldest";
 
@@ -55,8 +56,8 @@ function FilterGroup({ title, options, selected, onToggle }: { title: string; op
 }
 
 export default function Shop() {
-  const { products } = useProducts();
-  const [query, setQuery] = useState("");
+  const { products, isLoading, isError, refetch } = useProducts();
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("search") ?? "");
   const [brands, setBrands] = useState<Set<string>>(new Set());
   const [audiences, setAudiences] = useState<Set<string>>(new Set());
   const [vibes, setVibes] = useState<Set<string>>(new Set());
@@ -87,7 +88,7 @@ export default function Shop() {
   }, [products]);
 
   const activeFilterCount =
-    brands.size + audiences.size + vibes.size + types.size + (minInput ? 1 : 0) + (maxInput ? 1 : 0);
+    brands.size + audiences.size + vibes.size + types.size + (minInput ? 1 : 0) + (maxInput ? 1 : 0) + (query.trim() ? 1 : 0);
 
   const clearAll = () => {
     setBrands(new Set());
@@ -139,9 +140,11 @@ export default function Shop() {
       <div className="flex items-center gap-3 border-b border-black/10 pb-5">
         <Search size={16} className="shrink-0 text-[#95866c]" />
         <input
+          type="search"
+          aria-label="Search scent, note or fragrance house"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search scent, note, house"
+          placeholder="Search note or house"
           className="w-full bg-transparent text-sm outline-none placeholder:text-[#9a948a]"
         />
       </div>
@@ -185,7 +188,7 @@ export default function Shop() {
     <article key={product.id} className="product-card group">
       <Link href={`/product/${product.id}`} className="block">
         <div className="image-sheen relative aspect-[.86] overflow-hidden rounded-[1.2rem]" style={{ backgroundColor: product.tone }}>
-          <img src={product.image} alt={product.name} className="product-image h-full w-full object-cover mix-blend-multiply" loading="lazy" />
+          <img src={imageUrl(product.image, 900)} srcSet={imageSrcSet(product.image)} sizes="(min-width: 1024px) 28vw, (min-width: 768px) 45vw, 48vw" alt={`${product.brand} ${product.name}`} className="product-image h-full w-full object-cover" loading="lazy" decoding="async" />
           <span className="absolute left-3 top-3 rounded-full bg-[#f3f0e9]/90 px-3 py-1.5 text-xs font-bold uppercase tracking-[.12em]">{product.badge ?? "Curated"}</span>
           <span className="absolute inset-x-3 bottom-3 rounded-full bg-[#151515]/90 py-3 text-center text-xs font-bold uppercase tracking-[.12em] text-white opacity-0 transition-opacity group-hover:opacity-100">View composition</span>
         </div>
@@ -212,7 +215,7 @@ export default function Shop() {
         <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div className="eyebrow">{visible.length} of {products.length} compositions</div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setFiltersOpen((v) => !v)} className="flex items-center gap-2 rounded-full border border-black/15 px-4 py-2 text-xs font-bold uppercase tracking-[.12em] md:hidden">
+            <button type="button" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={filtersOpen} aria-controls="shop-mobile-filters" className="flex items-center gap-2 rounded-full border border-black/15 px-4 py-2 text-xs font-bold uppercase tracking-[.12em] md:hidden">
               <SlidersHorizontal size={13} /> Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
             </button>
             <select
@@ -227,16 +230,20 @@ export default function Shop() {
             </select>
           </div>
         </div>
-        {filtersOpen && <div className="mb-8 rounded-[1.2rem] border border-black/10 bg-[#f8f6f0] p-5 md:hidden">{filters}</div>}
+        {filtersOpen && <div id="shop-mobile-filters" className="mb-8 rounded-[1.2rem] border border-black/10 bg-[#f8f6f0] p-5 md:hidden">{filters}</div>}
         <div className="grid gap-10 md:grid-cols-[240px_1fr]">
           <aside className="hide-mobile">
             <div className="sticky top-24 rounded-[1.2rem] border border-black/10 bg-[#f8f6f0] p-5">{filters}</div>
           </aside>
           <div>
-            {visible.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-black/15 py-20 text-center text-sm text-[#777269]">
-                No fragrances match those filters.
-                <div><button onClick={clearAll} className="mt-4 text-xs font-bold uppercase tracking-[.12em] text-[#8d744e]">Clear all filters</button></div>
+            {isLoading ? (
+              <div role="status" className="rounded-2xl border border-black/10 bg-[#e9e5dc] py-20 text-center text-sm text-[#625d55]">Loading the fragrance edit…</div>
+            ) : isError ? (
+              <div role="alert" className="rounded-2xl border border-[#8f4c3c]/30 bg-[#f1e2db] py-12 text-center text-sm text-[#6f382e]">The fragrance edit could not load. <button type="button" onClick={() => void refetch()} className="ml-2 font-bold underline underline-offset-4">Try again</button></div>
+            ) : visible.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-black/15 py-20 text-center text-sm text-[#625d55]">
+                {products.length === 0 ? "No fragrances are listed right now." : "No fragrances match those filters."}
+                <div><button type="button" onClick={clearAll} className="mt-4 text-xs font-bold uppercase tracking-[.12em] text-[#6e5839]">Clear all filters</button></div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-x-4 gap-y-10 lg:grid-cols-3">{visible.map(productCard)}</div>

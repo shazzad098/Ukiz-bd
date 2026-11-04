@@ -11,9 +11,9 @@ import { serveStatic, setupVite } from "./vite";
 import { ENV, getCookieSecret } from "./env";
 import { csrfOriginGuard, parseAllowedOrigins } from "./originCheck";
 import { ipThrottle } from "./rateLimit";
-import { httpsRedirect, securityHeaders } from "./securityHeaders";
+import { canonicalOrigin, httpsRedirect, securityHeaders } from "./securityHeaders";
 import { hasAdminCredentials, validateAdminEnv } from "../adminAuth";
-import { checkDatabase, createPayment, findPaymentByProviderId, getOrderById, getOrderByPaymentReference, updateOrderPayment, updateOrderStatus, updatePayment } from "../db";
+import { checkDatabase, createPayment, findPaymentByProviderId, getOrderById, getOrderByPaymentReference, listProducts, updateOrderPayment, updateOrderStatus, updatePayment } from "../db";
 import { executeBkashPayment, parseBkashCallback, queryBkashPayment, verifyBkashWebhook } from "../bkash";
 
 // Fail fast on missing secrets BEFORE accepting traffic. In production a
@@ -135,7 +135,14 @@ async function startServer() {
       return res.status(204).end();
     }
     const rawMessage = verified.Message;
-    const message = typeof rawMessage === "string" ? JSON.parse(rawMessage) as Record<string, unknown> : rawMessage as Record<string, unknown>;
+    let message: Record<string, unknown>;
+    try {
+      const parsed: unknown = typeof rawMessage === "string" ? JSON.parse(rawMessage) : rawMessage;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return res.status(400).send("Invalid webhook message.");
+      message = parsed as Record<string, unknown>;
+    } catch {
+      return res.status(400).send("Invalid webhook message.");
+    }
     if (message.transactionStatus !== "Completed") return res.status(204).end();
     const invoice = typeof message.merchantInvoiceNumber === "string" ? message.merchantInvoiceNumber : "";
     const order = invoice ? await getOrderByPaymentReference(invoice) : undefined;
@@ -146,6 +153,23 @@ async function startServer() {
     await createPayment({ orderId: order.id, provider: "bkash", providerTransactionId: trxId, amount: order.total, status: "completed", rawPayload: JSON.stringify(message) });
     await updateOrderPayment(order.id, { paymentStatus: "paid", paymentProvider: "bkash", paymentReference: invoice, paidAmount: order.total, status: "Processing" });
     return res.status(204).end();
+  });
+  app.get("/sitemap.xml", async (_req, res) => {
+    try {
+      const products = await listProducts();
+      const origin = canonicalOrigin();
+      const routes = ["/", "/shop", "/finder", "/about", "/contact", "/refund-policy"];
+      const productRoutes = products.map(product => `/product/${encodeURIComponent(String(product.id))}`);
+      const entries = [...routes, ...productRoutes].map(route => {
+        const location = `${origin}${route}`.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return `  <url><loc>${location}</loc></url>`;
+      });
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries.join("\n")}\n</urlset>`);
+    } catch (error) {
+      console.error("[SEO] Failed to build sitemap:", error instanceof Error ? error.message : String(error));
+      res.status(503).type("text/plain").send("Sitemap temporarily unavailable.");
+    }
   });
   registerStorageProxy(app);
   registerOAuthRoutes(app);
